@@ -1,12 +1,13 @@
 import os
 from tensorflow.python.platform import gfile
-import numpy as np
 
 import tensorflow as tf
 from tensorflow.python.ops import io_ops
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 
-DATA_DIR = os.path.join("..", "data", "vivos")
+from csp.utils import wav_utils
+
+DATA_DIR = os.path.join("data", "vivos")
 
 CHARS = list("aăâeêioôơuưy") + \
         list("áắấéếíóốớúứý") + \
@@ -35,8 +36,8 @@ SRC_EOS_ID = 0
 DCT_COEFFICIENT_COUNT = 40
 
 TRAINING_SIZE = 11520
-#TRAINING_SIZE = 1
-TRAINING_START = 0
+# TRAINING_SIZE = -1
+TRAINING_START = 1
 
 WINDOW_SIZE_MS = 30.0
 WINDOW_STRIDE_MS = 10.0
@@ -44,9 +45,9 @@ WINDOW_STRIDE_MS = 10.0
 SAMPLE_RATE = 16000
 
 class BatchedInput():
-    def __init__(self, mode, batch_size):
+    def __init__(self, hparams, mode):
         # self.prepare_inputs()
-        self.batch_size = batch_size
+        self.batch_size = hparams.batch_size
 
         mode_dir = "train" if mode == tf.estimator.ModeKeys.TRAIN else "test"
 
@@ -63,33 +64,11 @@ class BatchedInput():
         # src_dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.int32))
         self.input_files = tf.placeholder(tf.string, shape=[None])
         src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files).skip(TRAINING_START)
-        src_dataset = src_dataset.map(lambda filename: io_ops.read_file(filename))
-        src_dataset = src_dataset.map(lambda wav_loader: contrib_audio.decode_wav(wav_loader, desired_channels=1))
-        src_dataset = src_dataset.map(lambda wav_decoder:
-                                      (contrib_audio.audio_spectrogram(
-                                          wav_decoder.audio,
-                                          window_size=int(SAMPLE_RATE * WINDOW_SIZE_MS / 1000),
-                                          stride=int(SAMPLE_RATE * WINDOW_STRIDE_MS / 1000),
-                                          magnitude_squared=True), wav_decoder.sample_rate))
-        src_dataset = src_dataset.map(lambda spectrogram, sample_rate: contrib_audio.mfcc(
-            spectrogram, sample_rate,
-            dct_coefficient_count=DCT_COEFFICIENT_COUNT))
-        src_dataset = src_dataset.map(lambda inputs: (
-            inputs,
-            tf.nn.moments(inputs, axes=[1])
-        ))
-        src_dataset = src_dataset.map(lambda inputs, moments: (
-            tf.divide(tf.subtract(inputs, moments[0]), moments[1]),
-            tf.shape(inputs)[1]
-        ))
-        src_dataset = src_dataset.map(lambda inputs, seq_len: (
-            inputs[0],
-            seq_len
-        ))
+        src_dataset = wav_utils.wav_to_features(src_dataset, hparams, 40)
 
-        if TRAINING_SIZE > 0:
-            src_dataset = src_dataset.take(TRAINING_SIZE)
-            tgt_dataset = tgt_dataset.take(TRAINING_SIZE)
+        if hparams.max_train > 0:
+            src_dataset = src_dataset.take(hparams.max_train)
+            tgt_dataset = tgt_dataset.take(hparams.max_train)
 
         src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
         self.batched_dataset = src_tgt_dataset
@@ -97,6 +76,28 @@ class BatchedInput():
             self.batch_size,
             padded_shapes=(([None, DCT_COEFFICIENT_COUNT], []),
                            ([None], [])))
+
+        def batching_func(x):
+            return x.padded_batch(
+                self.batch_size,
+                padded_shapes=(([None, DCT_COEFFICIENT_COUNT], []),
+                               ([None], [])))
+
+        if hparams.num_buckets > 1:
+            def key_func(src, tgt):
+                bucket_width = 10
+
+                # Bucket sentence pairs by the length of their source sentence and target
+                # sentence.
+                bucket_id = tf.maximum(src[1] // bucket_width, tgt[1] // bucket_width)
+                return tf.to_int64(tf.minimum(hparams.num_buckets, bucket_id))
+
+            def reduce_func(unused_key, windowed_data):
+                return batching_func(windowed_data)
+
+            self.batched_dataset = src_tgt_dataset.apply(
+                tf.contrib.data.group_by_window(
+                    key_func=key_func, reduce_func=reduce_func, window_size=hparams.batch_size))
 
         self.iterator = self.batched_dataset.make_initializable_iterator()
 

@@ -3,14 +3,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import time, os
+import time
 
 import tensorflow as tf
-import numpy as np
-
-import attention_configs as configs
-import attention_input_data as input_data
-from attention_input_data import BatchedInput
 
 from tensorflow.python.layers import core as layers_core
 
@@ -23,26 +18,37 @@ num_epochs = 10000
 num_hidden = 50
 num_encoder_layers = 1
 num_decoder_layers = 1
-batch_size = configs.BATCH_SIZE
 initial_learning_rate = 1e-2
 momentum = 0.9
 
 max_gradient_norm = 5.0
 
-num_batches_per_epoch = configs.TRAINING_SIZE // batch_size
-
 class AttentionModel():
     def __init__(self, hparams, mode, iterator):
+        self.hparams = hparams
         self.iterator = iterator
         self.mode = mode
+
+        self.TGT_SOS_INDEX = hparams.num_classes
+        self.TGT_EOS_INDEX = hparams.num_classes + 1
+
+        num_classes = hparams.num_classes + 2
 
         ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
             iterator.get_next()
 
-        self.targets = tf.one_hot(self.target_labels, depth=input_data.NUM_LABELS)
+        self.target_labels = tf.concat([
+            tf.fill([hparams.batch_size, 1], self.TGT_SOS_INDEX),
+            self.target_labels,
+            tf.fill([hparams.batch_size, 1], self.TGT_EOS_INDEX)
+        ], 1)
+
+        self.target_seq_len = tf.add(2, self.target_seq_len)
+
+        self.targets = tf.one_hot(self.target_labels, depth=num_classes)
 
         # Projection
-        self.output_layer = layers_core.Dense(input_data.NUM_LABELS, use_bias=False, name="output_projection")
+        self.output_layer = layers_core.Dense(num_classes, use_bias=False, name="output_projection")
 
         self.logits, loss, final_context_state, self.sample_id = self.build_graph()
         self.loss = loss
@@ -65,7 +71,10 @@ class AttentionModel():
         max_time = self.targets.shape[1]
         crossent = tf.losses.softmax_cross_entropy(self.targets, logits)
 
-        loss = tf.reduce_sum(crossent) / tf.to_float(batch_size)
+        loss = tf.reduce_sum(crossent) / tf.to_float(self.hparams.batch_size)
+
+        tf.summary.scalar("loss", loss)
+        self.merged_summaries = tf.summary.merge_all()
 
         return logits, loss, final_context_state, sample_id
 
@@ -84,24 +93,37 @@ class AttentionModel():
 
             decoder_emb_inp = tf.layers.dense(self.targets, num_units)
 
-            self.embedding_decoder = tf.diag(tf.ones(input_data.NUM_LABELS))
+            self.embedding_decoder = tf.diag(tf.ones(self.hparams.num_classes))
+
+            attention_mechanism = CustomAttention(
+                num_units,
+                encoder_outputs,
+                memory_sequence_length=self.input_seq_len
+            )
+
+            decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+                decoder_cell, attention_mechanism,
+                attention_layer_size=num_units,
+            )
+
             if self.mode == tf.estimator.ModeKeys.TRAIN or self.mode == tf.estimator.ModeKeys.EVAL:
                 helper = tf.contrib.seq2seq.TrainingHelper(decoder_emb_inp, self.target_seq_len)
                 decoder = tf.contrib.seq2seq.BasicDecoder(
                     decoder_cell,
                     helper,
-                    encoder_final_state,)
+                    decoder_cell.zero_state(self.hparams.batch_size, dtype=tf.float32),)
 
                 outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
                     decoder, swap_memory=True,
                     scope=decoder_scope)
 
                 sample_id = outputs.sample_id
+
                 logits = self.output_layer(outputs.rnn_output)
 
             elif self.mode == tf.estimator.ModeKeys.PREDICT:
-                start_tokens = tf.fill([configs.BATCH_SIZE], input_data.TGT_SOS_INDEX)
-                end_token = input_data.TGT_EOS_INDEX
+                start_tokens = tf.fill([self.hparams.batch_size], self.TGT_SOS_INDEX)
+                end_token = self.TGT_EOS_INDEX
 
                 helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
                     self.embedding_decoder,
@@ -127,54 +149,48 @@ class AttentionModel():
         return logits, sample_id, final_context_state
 
     def train(self, sess):
-        _, loss = sess.run([self.update_step, self.loss])
-        return loss
+        _, loss, self.summary, logits, targets = sess.run([
+            self.update_step,
+            self.loss,
+            self.merged_summaries,
+            self.logits,
+            self.targets
+        ])
+        return loss, 0
 
 
-    def predict(self, sess):
-        assert self.mode == tf.estimator.ModeKeys.PREDICT
-        _, sample_id = sess.run([self.logits, self.sample_id])
-        return sample_id
+    def eval(self, sess):
+        assert self.mode == tf.estimator.ModeKeys.EVAL
+        target_labels, test_cost, _, sample_id = sess.run([
+            self.target_labels,
+            self.loss,
+            self.logits,
+            self.sample_id
+        ])
+        return target_labels[:, 1:-1], test_cost, 0, sample_id[:, 1:-1]
 
+from tensorflow.contrib.seq2seq.python.ops.attention_wrapper import _BaseAttentionMechanism
+class CustomAttention(_BaseAttentionMechanism):
+    def __init__(self, num_units, memory, memory_sequence_length):
+        super(CustomAttention, self).__init__(
+            query_layer=layers_core.Dense(num_units, name="query_layer", use_bias=False, dtype=tf.float32),
+            memory_layer=layers_core.Dense(num_units, name="memory_layer", use_bias=False, dtype=tf.float32),
+            memory=memory,
+            probability_fn=lambda score, _: tf.nn.softmax(score),
+            memory_sequence_length=memory_sequence_length,
+            score_mask_value=None,
+            name="CustomAttention"
+        )
 
-def train(hparams):
-    tf.reset_default_graph()
+        self._num_units = num_units
 
-    batched_input = BatchedInput()
-    infer_input = BatchedInput()
-
-    tf.logging.set_verbosity(tf.logging.INFO)
-    tf.logging.info('test')
-
-    # val_inputs, val_seq_len, val_targets = audio_processor.next_train_batch(0, 1)
-
-    # train_sess = tf.Session(graph=train_model.graph)
-    # predict_sess = tf.Session(graph=predict_model.graph)
-
-    with tf.Session() as sess:
-        batched_input.get_data(sess)
-        infer_input.get_data(sess)
-        iterator = batched_input.batched_dataset.make_initializable_iterator()
-        infer_iterator = infer_input.batched_dataset.make_initializable_iterator()
-        with tf.variable_scope('root'):
-            train_model = Model(hparams, tf.estimator.ModeKeys.TRAIN, iterator=iterator)
-
-        with tf.variable_scope('root', reuse=True):
-            predict_model = Model(hparams, tf.estimator.ModeKeys.PREDICT, iterator=infer_iterator)
-
-        sess.run(iterator.initializer)
-        sess.run(infer_iterator.initializer)
-        sess.run(tf.global_variables_initializer())
-
-        global_step = 0
-        while global_step < num_epochs:
-            start_time = time.time()
-            try:
-                sess.run(infer_iterator.initializer)
-                loss = train_model.train(sess)
-                print("Loss: %.3f" % (loss))
-                sample_words = predict_model.predict(sess)
-                print([batched_input.decode(words) for words in sample_words])
-            except tf.errors.OutOfRangeError:
-                global_step += 1
-                sess.run(iterator.initializer)
+    def __call__(self, query, state):
+        with tf.variable_scope(None, "custom_attention", [query]):
+            processed_query = self.query_layer(query)
+            processed_query = tf.expand_dims(processed_query, 1)
+            b = tf.get_variable("attention_b", [num_units], dtype=tf.float32, initializer=tf.zeros_initializer)
+            v = tf.get_variable("attention_v", [num_units], dtype=tf.float32)
+            score = tf.reduce_sum(v * tf.tanh(processed_query + self._keys + b), [2])
+            alignments = tf.nn.softmax(score)
+            next_state = alignments
+            return alignments, next_state

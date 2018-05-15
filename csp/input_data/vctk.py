@@ -24,18 +24,15 @@ SRC_EOS_ID = 0
 
 DCT_COEFFICIENT_COUNT = 40
 
-TRAINING_SIZE = -1
-TRAINING_START = 1
-
 WINDOW_SIZE_MS = 30.0
 WINDOW_STRIDE_MS = 10.0
 
 SAMPLE_RATE = 16000
 
 class BatchedInput():
-    def __init__(self, mode, batch_size):
+    def __init__(self, hparams, mode):
         # self.prepare_inputs()
-        self.batch_size = batch_size
+        self.batch_size = hparams.batch_size
 
         wav_search_path = os.path.join(DATA_DIR, "wav48", '**', '*.wav')
         ls_input_files = gfile.Glob(wav_search_path)
@@ -51,7 +48,7 @@ class BatchedInput():
         self.ls_target_files = [os.path.join(DATA_DIR, "txt", fn.split('_')[0], fn + '.txt') for fn in files]
 
         self.target_files = tf.placeholder(tf.string, shape=[None])
-        tgt_dataset = tf.data.Dataset.from_tensor_slices(self.target_files).skip(TRAINING_START)
+        tgt_dataset = tf.data.Dataset.from_tensor_slices(self.target_files)
         tgt_dataset = tgt_dataset.flat_map(lambda filename: tf.data.TextLineDataset(filename).take(1))
         # tgt_dataset = tgt_dataset.map(lambda string: tf.string_split([string], delimiter="").values)
         tgt_dataset = tgt_dataset.map(lambda str: tf.py_func(self.encode, [str], tf.int64))
@@ -59,7 +56,7 @@ class BatchedInput():
 
         # src_dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.int32))
         self.input_files = tf.placeholder(tf.string, shape=[None])
-        src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files).skip(TRAINING_START)
+        src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files)
         src_dataset = src_dataset.map(lambda filename: io_ops.read_file(filename))
         src_dataset = src_dataset.map(lambda wav_loader: contrib_audio.decode_wav(wav_loader, desired_channels=1))
         src_dataset = src_dataset.map(lambda wav_decoder:
@@ -87,7 +84,7 @@ class BatchedInput():
         src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
         src_tgt_dataset.shuffle(1000)
 
-        if TRAINING_SIZE > 0: src_tgt_dataset.take(TRAINING_SIZE)
+        if hparams.max_train > 0: src_tgt_dataset.take(hparams.max_train)
 
         self.batched_dataset = src_tgt_dataset
         self.batched_dataset = src_tgt_dataset.padded_batch(
@@ -99,9 +96,6 @@ class BatchedInput():
 
     num_features = DCT_COEFFICIENT_COUNT
     num_classes = len(CHARS) + FIRST_INDEX + 1
-
-    def __len__(self):
-        return TRAINING_SIZE
 
     def prepare_inputs(self):
         self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])

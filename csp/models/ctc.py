@@ -6,9 +6,6 @@ from __future__ import print_function
 import time, os
 
 import tensorflow as tf
-import numpy as np
-
-import configs
 
 from six.moves import xrange as range
 
@@ -18,8 +15,7 @@ num_units = 50 # Number of units in the LSTM cell
 # Hyper-parameters
 num_epochs = 10000
 num_hidden = 50
-num_layers = 3
-batch_size = configs.BATCH_SIZE
+num_layers = 1
 initial_learning_rate = 1e-3
 momentum = 0.9
 
@@ -51,16 +47,10 @@ class CTCModel():
         outputs, _ = tf.nn.dynamic_rnn(stack, self.inputs, self.input_seq_len, dtype=tf.float32)
 
         # Reshaping to apply the same weights over the timesteps
-        outputs = tf.reshape(outputs, [-1, num_hidden])
-
-        W = tf.get_variable("W", shape=[num_hidden, hparams.num_classes],
-                            initializer=tf.truncated_normal_initializer(stddev=0.1))
-        b = tf.get_variable("b", shape=[hparams.num_classes], initializer=tf.zeros_initializer)
-
-        logits = tf.matmul(outputs, W) + b
-
+        # outputs = tf.reshape(outputs, [-1, num_hidden])
+        logits = tf.layers.dense(outputs, hparams.num_classes)
         # Reshaping back to the original shape
-        logits = tf.reshape(logits, [hparams.batch_size, -1, hparams.num_classes])
+        # logits = tf.reshape(logits, [hparams.batch_size, -1, hparams.num_classes])
 
         # Time major
         logits = tf.transpose(logits, (1, 0, 2))
@@ -69,10 +59,8 @@ class CTCModel():
         loss = tf.nn.ctc_loss(self.targets, logits, self.input_seq_len)
         self.cost = tf.reduce_mean(loss)
 
-        tf.summary.scalar('cost', self.cost)
-
         self.optimizer = tf.train.MomentumOptimizer(initial_learning_rate,
-                                                    0.9).minimize(self.cost)
+                                                    momentum).minimize(self.cost)
 
         self.decoded, log_prob = tf.nn.ctc_greedy_decoder(logits, self.input_seq_len)
         # self.decoded, log_prob = tf.nn.ctc_beam_search_decoder(logits, self.input_seq_len)
@@ -81,9 +69,9 @@ class CTCModel():
         # label error rate
         self.ler = tf.reduce_mean(tf.edit_distance(tf.cast(self.decoded[0], tf.int32),
                                                    self.targets))
-        tf.summary.scalar('label_error_rate', self.ler)
 
-        # Merge all the summaries
+        tf.summary.scalar('cost', self.cost)
+        tf.summary.scalar('label_error_rate', self.ler)
         self.merged_summaries = tf.summary.merge_all()
 
         self.saver = tf.train.Saver(tf.global_variables())
@@ -100,9 +88,12 @@ class CTCModel():
                 self.dense_decoded,
             ])
 
+        if batch_cost == float('inf'):
+            pass
+
         return batch_cost, _ler
 
-    def decode(self, sess):
+    def eval(self, sess):
         target_labels, cost, ler, decoded = \
             sess.run([
                 self.target_labels,
