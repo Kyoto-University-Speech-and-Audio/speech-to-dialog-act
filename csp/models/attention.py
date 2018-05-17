@@ -11,14 +11,16 @@ from tensorflow.python.layers import core as layers_core
 
 from six.moves import xrange as range
 
-num_units = 50 # Number of units in the LSTM cell
+from csp.utils import ops_utils
+
+num_units = 256 # Number of units in the LSTM cell
 
 # Hyper-parameters
 num_epochs = 10000
 num_hidden = 50
-num_encoder_layers = 1
+num_encoder_layers = 3
 num_decoder_layers = 1
-initial_learning_rate = 1e-2
+initial_learning_rate = 1e-3
 momentum = 0.9
 
 max_gradient_norm = 5.0
@@ -68,10 +70,14 @@ class AttentionModel():
         logits, sample_id, final_context_state = self.build_decoder(encoder_outputs, encoder_state)
 
         # Loss
-        max_time = self.targets.shape[1]
-        crossent = tf.losses.softmax_cross_entropy(self.targets, logits)
+        max_time = self.targets.shape[1].value
+        cross_ent = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=self.target_labels,
+            logits=logits)
 
-        loss = tf.reduce_sum(crossent) / tf.to_float(self.hparams.batch_size)
+        target_weights = tf.sequence_mask(self.target_seq_len, max_time, dtype=logits.dtype)
+
+        loss = tf.reduce_mean(cross_ent * target_weights)
 
         tf.summary.scalar("loss", loss)
         self.merged_summaries = tf.summary.merge_all()
@@ -79,7 +85,7 @@ class AttentionModel():
         return logits, loss, final_context_state, sample_id
 
     def build_encoder(self):
-        cells = [tf.contrib.rnn.BasicLSTMCell(num_units, forget_bias=1.0) for _ in range(num_encoder_layers)]
+        cells = [tf.contrib.rnn.GRUCell(num_units) for _ in range(num_encoder_layers)]
         encoder_cell = tf.contrib.rnn.MultiRNNCell(cells)
 
         encoder_outputs, encoder_state = \
@@ -88,7 +94,7 @@ class AttentionModel():
 
     def build_decoder(self, encoder_outputs, encoder_final_state):
         with tf.variable_scope('decoder') as decoder_scope:
-            cells = [tf.contrib.rnn.BasicLSTMCell(num_units, forget_bias=1.0) for _ in range(num_decoder_layers)]
+            cells = [tf.contrib.rnn.GRUCell(num_units) for _ in range(num_decoder_layers)]
             decoder_cell = tf.contrib.rnn.MultiRNNCell(cells)
 
             decoder_emb_inp = tf.layers.dense(self.targets, num_units)
@@ -111,7 +117,8 @@ class AttentionModel():
                 decoder = tf.contrib.seq2seq.BasicDecoder(
                     decoder_cell,
                     helper,
-                    decoder_cell.zero_state(self.hparams.batch_size, dtype=tf.float32),)
+                    decoder_cell.zero_state(self.hparams.batch_size, dtype=tf.float32),
+                )
 
                 outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
                     decoder, swap_memory=True,
@@ -120,6 +127,10 @@ class AttentionModel():
                 sample_id = outputs.sample_id
 
                 logits = self.output_layer(outputs.rnn_output)
+                self.sample_words = tf.argmax(logits, axis=-1)
+                self.ler = tf.reduce_mean(tf.edit_distance(
+                    ops_utils.sparse_tensor(self.sample_words),
+                    ops_utils.sparse_tensor(tf.cast(self.target_labels, tf.int64))))
 
             elif self.mode == tf.estimator.ModeKeys.PREDICT:
                 start_tokens = tf.fill([self.hparams.batch_size], self.TGT_SOS_INDEX)
@@ -142,32 +153,35 @@ class AttentionModel():
                     swap_memory=True,
                     maximum_iterations=100,
                     scope=decoder_scope)
+
                 sample_id = outputs.sample_id
                 logits = outputs.rnn_output
-                self.sample_words = tf.argmax(sample_id, axis=1)
+                self.sample_words = tf.argmax(logits, axis=1)
 
         return logits, sample_id, final_context_state
 
     def train(self, sess):
-        _, loss, self.summary, logits, targets = sess.run([
+        _, loss, self.summary, logits, targets, ler = sess.run([
             self.update_step,
             self.loss,
             self.merged_summaries,
             self.logits,
-            self.targets
+            self.targets,
+            self.ler
         ])
-        return loss, 0
+        return loss, ler
 
 
     def eval(self, sess):
         assert self.mode == tf.estimator.ModeKeys.EVAL
-        target_labels, test_cost, _, sample_id = sess.run([
+        target_labels, test_cost, _, sample_words, ler = sess.run([
             self.target_labels,
             self.loss,
             self.logits,
-            self.sample_id
+            self.sample_words,
+            self.ler
         ])
-        return target_labels[:, 1:-1], test_cost, 0, sample_id[:, 1:-1]
+        return target_labels[:, 1:-1], test_cost, ler, sample_words[:, 1:-1]
 
 from tensorflow.contrib.seq2seq.python.ops.attention_wrapper import _BaseAttentionMechanism
 class CustomAttention(_BaseAttentionMechanism):

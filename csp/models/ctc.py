@@ -16,7 +16,7 @@ num_units = 50 # Number of units in the LSTM cell
 num_epochs = 10000
 num_hidden = 50
 num_layers = 1
-initial_learning_rate = 1e-3
+initial_learning_rate = 1e-4
 momentum = 0.9
 
 tf.logging.set_verbosity(tf.logging.INFO)
@@ -56,7 +56,7 @@ class CTCModel():
         logits = tf.transpose(logits, (1, 0, 2))
         self.logits = logits
 
-        loss = tf.nn.ctc_loss(self.targets, logits, self.input_seq_len)
+        loss = tf.nn.ctc_loss(self.targets, logits, self.input_seq_len, ignore_longer_outputs_than_inputs=True)
         self.cost = tf.reduce_mean(loss)
 
         self.optimizer = tf.train.MomentumOptimizer(initial_learning_rate,
@@ -79,13 +79,15 @@ class CTCModel():
 
     def train(self, sess):
         # inputs, targets = sess.run([self.inputs, self.targets])
-        batch_cost, _, self.summary, _ler, dense_decoded = \
+        batch_cost, _, self.summary, _ler, dense_decoded, \
+            inputs, labels, inputs_len, labels_len, logits = \
             sess.run([
                 self.cost,
                 self.optimizer,
                 self.merged_summaries,
                 self.ler,
                 self.dense_decoded,
+                self.inputs, self.target_labels, self.input_seq_len, self.target_seq_len, self.logits
             ])
 
         if batch_cost == float('inf'):

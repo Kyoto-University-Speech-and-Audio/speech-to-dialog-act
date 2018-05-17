@@ -2,11 +2,13 @@ import os
 from tensorflow.python.platform import gfile
 import numpy as np
 
+from csp.utils import wav_utils
+
 import tensorflow as tf
 from tensorflow.python.ops import io_ops
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 
-DATA_DIR = os.path.join("..", "data", "VCTK-Corpus")
+DATA_DIR = os.path.join("data", "VCTK-Corpus")
 
 CHARS = "abcdefghijklmnopqrstuvwxyz"
 
@@ -15,23 +17,14 @@ SPACE_TOKEN = '<space>'
 SPACE_INDEX = 0
 FIRST_INDEX = 1
 
-TGT_SOS_TOKEN = '<s>'
-TGT_EOS_TOKEN = '</s>'
-TGT_SOS_INDEX = 1
-TGT_EOS_INDEX = 2
-
 SRC_EOS_ID = 0
 
 DCT_COEFFICIENT_COUNT = 40
 
-WINDOW_SIZE_MS = 30.0
-WINDOW_STRIDE_MS = 10.0
-
-SAMPLE_RATE = 16000
-
 class BatchedInput():
     def __init__(self, hparams, mode):
         # self.prepare_inputs()
+        # hparams.sample_rate = 96000
         self.batch_size = hparams.batch_size
 
         wav_search_path = os.path.join(DATA_DIR, "wav48", '**', '*.wav')
@@ -43,7 +36,7 @@ class BatchedInput():
         ifiles = set([os.path.basename(os.path.splitext(path)[0]) for path in ls_input_files])
         tfiles = set([os.path.basename(os.path.splitext(path)[0]) for path in ls_target_files])
 
-        files = ifiles - (ifiles - tfiles)
+        files = list(ifiles - (ifiles - tfiles))
         self.ls_input_files = [os.path.join(DATA_DIR, "wav48", fn.split('_')[0], fn + '.wav') for fn in files]
         self.ls_target_files = [os.path.join(DATA_DIR, "txt", fn.split('_')[0], fn + '.txt') for fn in files]
 
@@ -57,63 +50,43 @@ class BatchedInput():
         # src_dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.int32))
         self.input_files = tf.placeholder(tf.string, shape=[None])
         src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files)
-        src_dataset = src_dataset.map(lambda filename: io_ops.read_file(filename))
-        src_dataset = src_dataset.map(lambda wav_loader: contrib_audio.decode_wav(wav_loader, desired_channels=1))
-        src_dataset = src_dataset.map(lambda wav_decoder:
-                                      (contrib_audio.audio_spectrogram(
-                                          wav_decoder.audio,
-                                          window_size=int(SAMPLE_RATE * WINDOW_SIZE_MS / 1000),
-                                          stride=int(SAMPLE_RATE * WINDOW_STRIDE_MS / 1000),
-                                          magnitude_squared=True), wav_decoder.sample_rate))
-        src_dataset = src_dataset.map(lambda spectrogram, sample_rate: contrib_audio.mfcc(
-            spectrogram, sample_rate,
-            dct_coefficient_count=DCT_COEFFICIENT_COUNT))
-        src_dataset = src_dataset.map(lambda inputs: (
-            inputs,
-            tf.nn.moments(inputs, axes=[1])
-        ))
-        src_dataset = src_dataset.map(lambda inputs, moments: (
-            tf.divide(tf.subtract(inputs, moments[0]), moments[1]),
-            tf.shape(inputs)[1]
-        ))
-        src_dataset = src_dataset.map(lambda inputs, seq_len: (
-            inputs[0],
-            seq_len
-        ))
+        src_dataset = wav_utils.wav_to_features(src_dataset, hparams, 40)
+
+        if hparams.max_train > 0:
+            src_dataset.take(hparams.max_train)
+            tgt_dataset.take(hparams.max_train)
 
         src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
         src_tgt_dataset.shuffle(1000)
 
-        if hparams.max_train > 0: src_tgt_dataset.take(hparams.max_train)
-
         self.batched_dataset = src_tgt_dataset
-        self.batched_dataset = src_tgt_dataset.padded_batch(
-            self.batch_size,
-            padded_shapes=(([None, DCT_COEFFICIENT_COUNT], []),
-                           ([None], [])))
+
+        def batching_func(x):
+            return x.padded_batch(
+                self.batch_size,
+                padded_shapes=(([None, DCT_COEFFICIENT_COUNT], []),
+                               ([None], [])))
+
+        if hparams.num_buckets > 1:
+            def key_func(src, tgt):
+                bucket_width = 10
+
+                # Bucket sentence pairs by the length of their source sentence and target
+                # sentence.
+                bucket_id = tf.maximum(src[1] // bucket_width, tgt[1] // bucket_width)
+                return tf.to_int64(tf.minimum(hparams.num_buckets, bucket_id))
+
+            def reduce_func(unused_key, windowed_data):
+                return batching_func(windowed_data)
+
+            self.batched_dataset = src_tgt_dataset.apply(
+                tf.contrib.data.group_by_window(
+                    key_func=key_func, reduce_func=reduce_func, window_size=hparams.batch_size))
 
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     num_features = DCT_COEFFICIENT_COUNT
     num_classes = len(CHARS) + FIRST_INDEX + 1
-
-    def prepare_inputs(self):
-        self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])
-        wav_loader = io_ops.read_file(self.wav_filename_placeholder_)
-        wav_decoder = contrib_audio.decode_wav(wav_loader, desired_channels=1)
-
-        spectrogram = contrib_audio.audio_spectrogram(
-            wav_decoder.audio,
-            window_size=int(SAMPLE_RATE * WINDOW_SIZE_MS / 1000),
-            stride=int(SAMPLE_RATE * WINDOW_STRIDE_MS / 1000),
-            magnitude_squared=True)
-        inputs = contrib_audio.mfcc(
-            spectrogram,
-            wav_decoder.sample_rate,
-            dct_coefficient_count=DCT_COEFFICIENT_COUNT)
-        mean, var = tf.nn.moments(inputs, axes=[1])
-        self.inputs_ = tf.divide(tf.subtract(inputs, mean), var)
-        self.seq_len_ = tf.shape(self.inputs_)[1]
 
     def encode(self, s):
         s = s.decode('utf-8')

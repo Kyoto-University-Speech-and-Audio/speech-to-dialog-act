@@ -1,5 +1,6 @@
 import os
 from tensorflow.python.platform import gfile
+import numpy as np
 
 import tensorflow as tf
 from tensorflow.python.ops import io_ops
@@ -35,27 +36,22 @@ SRC_EOS_ID = 0
 
 DCT_COEFFICIENT_COUNT = 40
 
-TRAINING_SIZE = 11520
-# TRAINING_SIZE = -1
-TRAINING_START = 1
-
-WINDOW_SIZE_MS = 30.0
-WINDOW_STRIDE_MS = 10.0
-
-SAMPLE_RATE = 16000
-
 class BatchedInput():
     def __init__(self, hparams, mode):
         # self.prepare_inputs()
-        self.batch_size = hparams.batch_size
+        self.hparams = hparams
 
-        mode_dir = "train" if mode == tf.estimator.ModeKeys.TRAIN else "test"
+        self.mode_dir = "train" if mode == tf.estimator.ModeKeys.TRAIN else "test"
 
-        search_path = os.path.join(DATA_DIR, mode_dir, "waves", '**', '*.wav')
+        search_path = os.path.join(DATA_DIR, self.mode_dir, "waves", '**', '*.wav')
         self.ls_input_files = gfile.Glob(search_path)
         self.ls_input_files.sort()
 
-        tgt_dataset = tf.data.TextLineDataset(os.path.join(DATA_DIR, mode_dir, "prompts_pp.txt")).skip(TRAINING_START)
+    def init_dataset(self):
+        hparams = self.hparams
+        self.batch_size = hparams.batch_size
+
+        tgt_dataset = tf.data.TextLineDataset(os.path.join(DATA_DIR, self.mode_dir, "prompts_pp.txt"))
         # tgt_dataset = tgt_dataset.flat_map(lambda filename: tf.data.TextLineDataset(filename).take(1))
         # tgt_dataset = tgt_dataset.map(lambda string: tf.string_split([string], delimiter="").values)
         tgt_dataset = tgt_dataset.map(lambda str: tf.py_func(self.encode, [str], tf.int64))
@@ -63,19 +59,16 @@ class BatchedInput():
 
         # src_dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.int32))
         self.input_files = tf.placeholder(tf.string, shape=[None])
-        src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files).skip(TRAINING_START)
+        src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files)
         src_dataset = wav_utils.wav_to_features(src_dataset, hparams, 40)
 
-        if hparams.max_train > 0:
-            src_dataset = src_dataset.take(hparams.max_train)
-            tgt_dataset = tgt_dataset.take(hparams.max_train)
-
         src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+        # src_tgt_dataset.shuffle(1000)
+
+        if hparams.max_train > 0:
+            src_tgt_dataset = src_tgt_dataset.take(hparams.max_train)
+
         self.batched_dataset = src_tgt_dataset
-        self.batched_dataset = src_tgt_dataset.padded_batch(
-            self.batch_size,
-            padded_shapes=(([None, DCT_COEFFICIENT_COUNT], []),
-                           ([None], [])))
 
         def batching_func(x):
             return x.padded_batch(
@@ -102,28 +95,9 @@ class BatchedInput():
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     num_features = DCT_COEFFICIENT_COUNT
-    num_classes = len(CHARS) + FIRST_INDEX + 1
+    num_classes = len(CHARS) + FIRST_INDEX
 
-    def __len__(self):
-        return TRAINING_SIZE
-
-    def prepare_inputs(self):
-        self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])
-        wav_loader = io_ops.read_file(self.wav_filename_placeholder_)
-        wav_decoder = contrib_audio.decode_wav(wav_loader, desired_channels=1)
-
-        spectrogram = contrib_audio.audio_spectrogram(
-            wav_decoder.audio,
-            window_size=int(SAMPLE_RATE * WINDOW_SIZE_MS / 1000),
-            stride=int(SAMPLE_RATE * WINDOW_STRIDE_MS / 1000),
-            magnitude_squared=True)
-        inputs = contrib_audio.mfcc(
-            spectrogram,
-            wav_decoder.sample_rate,
-            dct_coefficient_count=DCT_COEFFICIENT_COUNT)
-        mean, var = tf.nn.moments(inputs, axes=[1])
-        self.inputs_ = tf.divide(tf.subtract(inputs, mean), var)
-        self.seq_len_ = tf.shape(self.inputs_)[1]
+    def size(self): return len(self.ls_input_files)
 
     @classmethod
     def encode(cls, s):
@@ -153,7 +127,11 @@ class BatchedInput():
 
     @classmethod
     def decode(cls, d):
-        str_decoded = ''.join([CHARS[x - FIRST_INDEX] if x >= FIRST_INDEX else ' ' for x in d])
+        str_decoded = ""
+        for x in d:
+            if len(CHARS) + FIRST_INDEX > x >= FIRST_INDEX: str_decoded += CHARS[x - FIRST_INDEX]
+            elif x == 0: str_decoded += " "
+            else: break
         return str_decoded
 
 

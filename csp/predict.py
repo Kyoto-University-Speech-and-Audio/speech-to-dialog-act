@@ -29,7 +29,7 @@ def add_arguments(parser):
     parser.add_argument("--max_train", type=int, default=0,
                         help="Limit on the size of training data (0: no limit).")
 
-    parser.add_argument('--sample_rate', type=str, default=16000)
+    parser.add_argument('--sample_rate', type=float, default=16000)
     parser.add_argument('--window_size_ms', type=float, default=30.0)
     parser.add_argument('--window_stride_ms', type=float, default=10.0)
 
@@ -68,6 +68,8 @@ class ModelWrapper:
         self.hparams = hparams
         with self.graph.as_default():
             self.batched_input = BatchedInput(hparams, mode)
+            self.hparams.batch_size = self.batched_input.size()
+            self.batched_input.init_dataset()
             self.iterator = self.batched_input.iterator
             self.model = Model(
                 hparams,
@@ -93,89 +95,35 @@ class ModelWrapper:
             sess.run(tf.tables_initializer())
             return self.model, 0
 
-def train(Model, BatchedInput, hparams):
+def predict(Model, BatchedInput, hparams):
     hparams.num_classes = BatchedInput.num_classes
-    train_model = ModelWrapper(
+    pred_model = ModelWrapper(
         hparams,
-        tf.estimator.ModeKeys.TRAIN,
-        BatchedInput, Model
-    )
-    eval_model = ModelWrapper(
-        hparams,
-        tf.estimator.ModeKeys.EVAL,
+        tf.estimator.ModeKeys.PREDICT,
         BatchedInput, Model
     )
 
-    train_sess = tf.Session(graph=train_model.graph)
-    eval_sess = tf.Session(graph=eval_model.graph)
+    pred_sess = tf.Session(graph=pred_model.graph)
 
-    with train_model.graph.as_default():
-        train_model.batched_input.reset_iterator(train_sess)
+    with pred_model.graph.as_default():
+        loaded_eval_model, _ = pred_model.create_or_load_model(
+            pred_sess, "pred"
+        )
 
-    with train_model.graph.as_default():
-        loaded_train_model, global_step = train_model.create_or_load_model(train_sess, "train")
+        pred_model.batched_input.reset_iterator(pred_sess)
+        target_labels, test_cost, test_ler, decoded = loaded_eval_model.eval(pred_sess)
 
-    global_step = 0
+        # decoded_txt =
+        # tf.summary.text('decoded_text', tf.py_func)
 
-    train_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "%s_%s" % (hparams.model, hparams.dataset), "log_train"), train_sess.graph)
-    validation_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "%s_%s" % (hparams.model, hparams.dataset), "log_validation"))
+    for i in range(len(target_labels)):
+        str_original = BatchedInput.decode(target_labels[i])
+        str_decoded = BatchedInput.decode(decoded[i])
 
-    last_eval_step = global_step
-    while global_step < hparams.num_train_steps:
-        train_cost = train_ler = 0
-        start = time.time()
+        print('Original: %s' % str_original)
+        print('Decoded:  %s' % str_decoded)
 
-        try:
-            batch_cost, ler = loaded_train_model.train(train_sess)
-            hparams.epoch_step += 1
-        except tf.errors.OutOfRangeError:
-            hparams.epoch_step = 0
-            global_step += 1
-            train_model.batched_input.reset_iterator(train_sess)
-            continue
-
-        train_cost += batch_cost * hparams.batch_size
-        train_ler += ler * hparams.batch_size
-        train_writer.add_summary(train_model.model.summary, global_step * hparams.batch_size + hparams.epoch_step)
-
-        train_cost /= hparams.batch_size
-        train_ler /= hparams.batch_size
-
-        # val_cost, val_ler = sess.run([self.cost, self.ler])
-        val_cost, val_ler = 0, 0
-
-        log = "Epoch {}/{}, Batch {}, train_cost = {:.3f}, train_ler = {:.3f}, time = {:.3f}"
-        tf.logging.info(log.format(global_step + 1, hparams.num_train_steps,
-                                   hparams.epoch_step,
-                                   train_cost, train_ler,
-                                   time.time() - start))
-
-        if global_step - last_eval_step >= 10:
-            train_model.save(train_sess, global_step)
-
-            with eval_model.graph.as_default():
-                loaded_eval_model, _ = eval_model.create_or_load_model(
-                    eval_sess, "eval"
-                )
-
-                eval_model.batched_input.reset_iterator(eval_sess)
-                target_labels, test_cost, test_ler, decoded = loaded_eval_model.eval(eval_sess)
-
-                log = "Epoch {}/{}:, test_cost = {:.3f}, test_ler = {:.3f}"
-                tf.logging.info(log.format(global_step + 1, hparams.num_train_steps,
-                                           test_cost, test_ler))
-
-                # decoded_txt =
-                # tf.summary.text('decoded_text', tf.py_func)
-
-            for i in range(min(10, len(target_labels))):
-                str_original = BatchedInput.decode(target_labels[i])
-                str_decoded = BatchedInput.decode(decoded[i])
-
-                print('Original: %s' % str_original)
-                print('Decoded:  %s' % str_decoded)
-
-            last_eval_step = global_step
+    tf.logging.info("test_cost = {:.3f}, test_ler = {:.3f}".format(test_cost, test_ler))
 
 def main(unused_argv):
     hparams = create_hparams(FLAGS)
@@ -195,7 +143,7 @@ def main(unused_argv):
     elif FLAGS.model == 'attention':
         from .models.attention import AttentionModel as Model
 
-    train(Model, BatchedInput, hparams)
+    predict(Model, BatchedInput, hparams)
 
 
 if __name__ == "__main__":
