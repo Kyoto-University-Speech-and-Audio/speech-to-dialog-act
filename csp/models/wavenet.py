@@ -8,10 +8,8 @@ import time, os
 from .base import BaseModel
 
 import tensorflow as tf
-import pdb
-from six.moves import xrange as range
 
-from ..utils import ops_utils
+from six.moves import xrange as range
 
 num_units = 320 # Number of units in the LSTM cell
 # Accounting the 0th indice +  space + blank label = 28 characters
@@ -26,16 +24,13 @@ tf.logging.info('test')
 
 # val_inputs, val_seq_len, val_targets = audio_processor.next_train_batch(1, 1)
 
-pdb.set_trace()
-
-class CTCModel(BaseModel):
-    def __init__(self, hparams, mode, iterator):
-        BaseModel.__init__(hparams, mode, iterator)
-        self.num_classes = self.hparams.num_classes + 1
-
+class WavenetModel(BaseModel):
     def _build_graph(self):
         # generate a SparseTensor required by ctc_loss op.
-        self.targets = ops_utils.sparse_tensor(self.target_labels, padding_value=-1)
+        indices = tf.where(tf.not_equal(self.target_labels, tf.constant(-1, tf.int32)))
+        values = tf.gather_nd(self.target_labels, indices)
+        shape = tf.shape(self.target_labels, out_type=tf.int64)
+        self.targets = tf.SparseTensor(indices, values, shape)
 
         # Defining the cell
         # cells = [tf.contrib.rnn.LSTMCell(num_units) for _ in range(num_layers)]
@@ -53,9 +48,9 @@ class CTCModel(BaseModel):
 
         # Reshaping to apply the same weights over the timesteps
         # outputs = tf.reshape(outputs, [-1, num_hidden])
-        logits = tf.layers.dense(outputs, self.num_classes)
+        logits = tf.layers.dense(outputs, self.hparams.num_classes)
         # Reshaping back to the original shape
-        # logits = tf.reshape(logits, [hparams.batch_size, -1, self.num_classes])
+        # logits = tf.reshape(logits, [hparams.batch_size, -1, hparams.num_classes])
 
         # Time major
         logits = tf.transpose(logits, (1, 0, 2))

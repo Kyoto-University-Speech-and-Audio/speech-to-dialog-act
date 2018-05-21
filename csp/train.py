@@ -6,6 +6,9 @@ import numpy as np
 import importlib
 import sys
 import time
+from .utils import utils
+
+from tensorflow.python import debug as tf_debug
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
@@ -14,8 +17,11 @@ tf.logging.info('test')
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
 
-    parser.add_argument('--dataset', type=str, default="vivos")
-    parser.add_argument('--model', type=str, default="ctc")
+    parser.add_argument('--reset', type="bool", const=True, nargs="?", default=False)
+
+    parser.add_argument('--dataset', type=str, default="aps")
+    parser.add_argument('--model', type=str, default="ctc-attention")
+
     parser.add_argument("--num_units", type=int, default=32, help="Network size.")
     parser.add_argument("--num_encoder_layers", type=int, default=2,
                         help="Encoder depth, equal to num_layers if None.")
@@ -33,8 +39,19 @@ def add_arguments(parser):
     parser.add_argument('--window_size_ms', type=float, default=30.0)
     parser.add_argument('--window_stride_ms', type=float, default=10.0)
 
+    # optimizer
+    parser.add_argument("--optimizer", type=str, default="adam", help="sgd | adam")
+    parser.add_argument("--learning_rate", type=float, default=1e-3,
+                        help="Learning rate. Adam: 0.001 | 0.0001")
+
     parser.add_argument(
         "--num_train_steps", type=int, default=12000, help="Num steps to train.")
+    parser.add_argument("--colocate_gradients_with_ops", type="bool", nargs="?",
+                        const=True,
+                        default=True,
+                        help=("Whether try colocating gradients with "
+                              "corresponding op"))
+
     parser.add_argument("--summaries_dir", type=str, default="log")
     parser.add_argument("--out_dir", type=str, default=None,
                         help="Store log/model files.")
@@ -43,14 +60,18 @@ def create_hparams(flags):
     return tf.contrib.training.HParams(
         model=flags.model,
         dataset=flags.dataset,
+        reset=flags.reset,
 
         num_units=flags.num_units,
         num_encoder_layers=flags.num_encoder_layers,
         num_decoder_layers=flags.num_decoder_layers,
         batch_size=flags.batch_size,
         summaries_dir=flags.summaries_dir,
-        out_dir=flags.out_dir or "saved_models/%s_%s" % (flags.model, flags.dataset),
+        out_dir=flags.out_dir or "saved_models/%s_%s" %
+                (flags.model.replace('-', '_'), flags.dataset.replace('-', '_')),
+
         num_train_steps=flags.num_train_steps,
+        colocate_gradients_with_ops=flags.colocate_gradients_with_ops,
 
         sample_rate=flags.sample_rate,
         window_size_ms=flags.window_size_ms,
@@ -59,6 +80,8 @@ def create_hparams(flags):
         num_buckets=flags.num_buckets,
         max_train=flags.max_train,
 
+        optimizer=flags.optimizer,
+        learning_rate=flags.learning_rate,
         epoch_step=0,
     )
 
@@ -83,16 +106,20 @@ class ModelWrapper:
         tf.logging.info('Saving to "%s-%d"', self.hparams.out_dir, global_step)
         self.model.saver.save(sess, os.path.join(self.hparams.out_dir, "csp.ckpt"))
 
-    def create_or_load_model(self, sess, name):
+    def create_model(self, sess, name):
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.tables_initializer())
+        global_step = self.model.global_step.eval(session=sess)
+        return self.model, global_step
+
+    def load_model(self, sess, name):
         latest_ckpt = tf.train.latest_checkpoint(self.hparams.out_dir)
         if latest_ckpt:
             self.model.saver.restore(sess, latest_ckpt)
             sess.run(tf.tables_initializer())
-            return self.model, 0
-        else:
-            sess.run(tf.global_variables_initializer())
-            sess.run(tf.tables_initializer())
-            return self.model, 0
+            global_step = self.model.global_step.eval(session=sess)
+            return self.model, global_step
+        else: return self.create_model(sess, name)
 
 def train(Model, BatchedInput, hparams):
     hparams.num_classes = BatchedInput.num_classes
@@ -108,36 +135,34 @@ def train(Model, BatchedInput, hparams):
     )
 
     train_sess = tf.Session(graph=train_model.graph)
-    eval_sess = tf.Session(graph=eval_model.graph)
+    # train_sess = tf_debug.LocalCLIDebugWrapperSession(train_sess)
 
     with train_model.graph.as_default():
         train_model.batched_input.reset_iterator(train_sess)
 
     with train_model.graph.as_default():
-        loaded_train_model, global_step = train_model.create_or_load_model(train_sess, "train")
-
-    global_step = 0
+        loaded_train_model, global_step = train_model.create_model(train_sess, "train") \
+            if hparams.reset else train_model.load_model(train_sess, "train")
 
     train_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "%s_%s" % (hparams.model, hparams.dataset), "log_train"), train_sess.graph)
     validation_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "%s_%s" % (hparams.model, hparams.dataset), "log_validation"))
 
-    last_eval_step = global_step
+    last_save_step = global_step
     while global_step < hparams.num_train_steps:
         train_cost = train_ler = 0
         start = time.time()
 
         try:
-            batch_cost, ler = loaded_train_model.train(train_sess)
+            batch_cost, ler, global_step = loaded_train_model.train(train_sess)
             hparams.epoch_step += 1
         except tf.errors.OutOfRangeError:
             hparams.epoch_step = 0
-            global_step += 1
             train_model.batched_input.reset_iterator(train_sess)
             continue
 
         train_cost += batch_cost * hparams.batch_size
         train_ler += ler * hparams.batch_size
-        train_writer.add_summary(train_model.model.summary, global_step * hparams.batch_size + hparams.epoch_step)
+        train_writer.add_summary(train_model.model.summary, global_step)
 
         train_cost /= hparams.batch_size
         train_ler /= hparams.batch_size
@@ -145,38 +170,17 @@ def train(Model, BatchedInput, hparams):
         # val_cost, val_ler = sess.run([self.cost, self.ler])
         val_cost, val_ler = 0, 0
 
-        log = "Epoch {}/{}, Batch {}, train_cost = {:.3f}, train_ler = {:.3f}, time = {:.3f}"
-        tf.logging.info(log.format(global_step + 1, hparams.num_train_steps,
-                                   hparams.epoch_step,
-                                   train_cost, train_ler,
-                                   time.time() - start))
+        log = "Epoch {}, Batch {}/{}, train_cost = {:.3f}, train_ler = {:.3f}, time = {:.3f}"
+        tf.logging.info(log.format(
+            global_step * hparams.batch_size // train_model.batched_input.size + 1,
+            (global_step * hparams.batch_size % train_model.batched_input.size) // (hparams.batch_size + 1),
+            train_model.batched_input.size // hparams.batch_size,
+            train_cost, train_ler,
+            time.time() - start))
 
-        if global_step - last_eval_step >= 1:
+        if global_step - last_save_step >= 300:
             train_model.save(train_sess, global_step)
-
-            with eval_model.graph.as_default():
-                loaded_eval_model, _ = eval_model.create_or_load_model(
-                    eval_sess, "eval"
-                )
-
-                eval_model.batched_input.reset_iterator(eval_sess)
-                target_labels, test_cost, test_ler, decoded = loaded_eval_model.eval(eval_sess)
-
-                log = "Epoch {}/{}:, test_cost = {:.3f}, test_ler = {:.3f}"
-                tf.logging.info(log.format(global_step + 1, hparams.num_train_steps,
-                                           test_cost, test_ler))
-
-                # decoded_txt =
-                # tf.summary.text('decoded_text', tf.py_func)
-
-            for i in range(min(10, len(target_labels))):
-                str_original = BatchedInput.decode(target_labels[i])
-                str_decoded = BatchedInput.decode(decoded[i])
-
-                print('Original: %s' % str_original)
-                print('Decoded:  %s' % str_decoded)
-
-            last_eval_step = global_step
+            last_save_step = global_step
 
 def main(unused_argv):
     hparams = create_hparams(FLAGS)
@@ -186,15 +190,8 @@ def main(unused_argv):
         random.seed(random_seed)
         np.random.seed(random_seed)
 
-    if FLAGS.dataset == 'vivos':
-        from .input_data.vivos import BatchedInput
-    elif FLAGS.dataset == 'vctk':
-        from .input_data.vctk import BatchedInput
-
-    if FLAGS.model == 'ctc':
-        from .models.ctc import CTCModel as Model
-    elif FLAGS.model == 'attention':
-        from .models.attention import AttentionModel as Model
+    BatchedInput = utils.get_batched_input_class(FLAGS)
+    Model = utils.get_model_class(FLAGS)
 
     train(Model, BatchedInput, hparams)
 

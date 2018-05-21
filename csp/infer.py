@@ -5,7 +5,7 @@ import random
 import numpy as np
 import importlib
 import sys
-import time
+from .utils import utils
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
@@ -23,11 +23,9 @@ def add_arguments(parser):
                         help="Decoder depth, equal to num_layers if None.")
     parser.add_argument("--random_seed", type=int, default=None,
                         help="Random seed (>0, set a specific seed).")
-    parser.add_argument("--batch_size", type=int, default=128, help="Batch size.")
+
     parser.add_argument("--num_buckets", type=int, default=5,
                         help="Put data into similar-length buckets.")
-    parser.add_argument("--max_train", type=int, default=0,
-                        help="Limit on the size of training data (0: no limit).")
 
     parser.add_argument('--sample_rate', type=float, default=16000)
     parser.add_argument('--window_size_ms', type=float, default=30.0)
@@ -47,17 +45,15 @@ def create_hparams(flags):
         num_units=flags.num_units,
         num_encoder_layers=flags.num_encoder_layers,
         num_decoder_layers=flags.num_decoder_layers,
-        batch_size=flags.batch_size,
         summaries_dir=flags.summaries_dir,
         out_dir=flags.out_dir or "saved_models/%s_%s" % (flags.model, flags.dataset),
         num_train_steps=flags.num_train_steps,
 
+        num_buckets=flags.num_buckets,
+
         sample_rate=flags.sample_rate,
         window_size_ms=flags.window_size_ms,
         window_stride_ms=flags.window_stride_ms,
-
-        num_buckets=flags.num_buckets,
-        max_train=flags.max_train,
 
         epoch_step=0,
     )
@@ -68,7 +64,7 @@ class ModelWrapper:
         self.hparams = hparams
         with self.graph.as_default():
             self.batched_input = BatchedInput(hparams, mode)
-            self.hparams.batch_size = self.batched_input.size()
+            self.hparams.batch_size = self.batched_input.size
             self.batched_input.init_dataset()
             self.iterator = self.batched_input.iterator
             self.model = Model(
@@ -84,46 +80,42 @@ class ModelWrapper:
         tf.logging.info('Saving to "%s-%d"', self.hparams.out_dir, global_step)
         self.model.saver.save(sess, os.path.join(self.hparams.out_dir, "csp.ckpt"))
 
-    def create_or_load_model(self, sess, name):
+    def load_model(self, sess, name):
         latest_ckpt = tf.train.latest_checkpoint(self.hparams.out_dir)
         if latest_ckpt:
             self.model.saver.restore(sess, latest_ckpt)
             sess.run(tf.tables_initializer())
-            return self.model, 0
-        else:
-            sess.run(tf.global_variables_initializer())
-            sess.run(tf.tables_initializer())
-            return self.model, 0
+            return self.model
 
-def predict(Model, BatchedInput, hparams):
+def infer(Model, BatchedInput, hparams):
     hparams.num_classes = BatchedInput.num_classes
-    pred_model = ModelWrapper(
+    infer_model = ModelWrapper(
         hparams,
         tf.estimator.ModeKeys.PREDICT,
         BatchedInput, Model
     )
 
-    pred_sess = tf.Session(graph=pred_model.graph)
+    infer_sess = tf.Session(graph=infer_model.graph)
 
-    with pred_model.graph.as_default():
-        loaded_eval_model, _ = pred_model.create_or_load_model(
-            pred_sess, "pred"
+    with infer_model.graph.as_default():
+        loaded_infer_model = infer_model.load_model(
+            infer_sess, "infer"
         )
 
-        pred_model.batched_input.reset_iterator(pred_sess)
-        target_labels, test_cost, test_ler, decoded = loaded_eval_model.eval(pred_sess)
+        infer_model.batched_input.reset_iterator(infer_sess)
+        sample_ids = loaded_infer_model.infer(infer_sess)
 
         # decoded_txt =
         # tf.summary.text('decoded_text', tf.py_func)
 
-    for i in range(len(target_labels)):
-        str_original = BatchedInput.decode(target_labels[i])
-        str_decoded = BatchedInput.decode(decoded[i])
+    for i in range(len(sample_ids[0])):
+        # str_original = BatchedInput.decode(target_labels[i])
+        str_decoded = BatchedInput.decode(sample_ids[0][i])
 
-        print('Original: %s' % str_original)
+        # print('Original: %s' % str_original)
         print('Decoded:  %s' % str_decoded)
 
-    tf.logging.info("test_cost = {:.3f}, test_ler = {:.3f}".format(test_cost, test_ler))
+    # tf.logging.info("test_cost = {:.3f}, test_ler = {:.3f}".format(test_cost, test_ler))
 
 def main(unused_argv):
     hparams = create_hparams(FLAGS)
@@ -133,17 +125,10 @@ def main(unused_argv):
         random.seed(random_seed)
         np.random.seed(random_seed)
 
-    if FLAGS.dataset == 'vivos':
-        from .input_data.vivos import BatchedInput
-    elif FLAGS.dataset == 'vctk':
-        from .input_data.vctk import BatchedInput
+    BatchedInput = utils.get_batched_input_class(FLAGS)
+    Model = utils.get_model_class(FLAGS)
 
-    if FLAGS.model == 'ctc':
-        from .models.ctc import CTCModel as Model
-    elif FLAGS.model == 'attention':
-        from .models.attention import AttentionModel as Model
-
-    predict(Model, BatchedInput, hparams)
+    infer(Model, BatchedInput, hparams)
 
 
 if __name__ == "__main__":

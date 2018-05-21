@@ -3,8 +3,7 @@ from tensorflow.python.platform import gfile
 import numpy as np
 
 import tensorflow as tf
-from tensorflow.python.ops import io_ops
-from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
+from ..utils import utils
 
 from csp.utils import wav_utils
 
@@ -27,19 +26,13 @@ SPACE_TOKEN = '<space>'
 SPACE_INDEX = 0
 FIRST_INDEX = 1
 
-TGT_SOS_TOKEN = '<s>'
-TGT_EOS_TOKEN = '</s>'
-TGT_SOS_INDEX = 1
-TGT_EOS_INDEX = 2
-
-SRC_EOS_ID = 0
-
 DCT_COEFFICIENT_COUNT = 40
 
 class BatchedInput():
     def __init__(self, hparams, mode):
         # self.prepare_inputs()
         self.hparams = hparams
+        self.mode = mode
 
         self.mode_dir = "train" if mode == tf.estimator.ModeKeys.TRAIN else "test"
 
@@ -47,57 +40,45 @@ class BatchedInput():
         self.ls_input_files = gfile.Glob(search_path)
         self.ls_input_files.sort()
 
+        self.size = len(self.ls_input_files)
+
     def init_dataset(self):
         hparams = self.hparams
         self.batch_size = hparams.batch_size
-
-        tgt_dataset = tf.data.TextLineDataset(os.path.join(DATA_DIR, self.mode_dir, "prompts_pp.txt"))
-        # tgt_dataset = tgt_dataset.flat_map(lambda filename: tf.data.TextLineDataset(filename).take(1))
-        # tgt_dataset = tgt_dataset.map(lambda string: tf.string_split([string], delimiter="").values)
-        tgt_dataset = tgt_dataset.map(lambda str: tf.py_func(self.encode, [str], tf.int64))
-        tgt_dataset = tgt_dataset.map(lambda phones: (tf.cast(phones, tf.int32), tf.size(phones)))
 
         # src_dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.int32))
         self.input_files = tf.placeholder(tf.string, shape=[None])
         src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files)
         src_dataset = wav_utils.wav_to_features(src_dataset, hparams, 40)
 
-        src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+        if self.mode == tf.estimator.ModeKeys.PREDICT:
+            src_tgt_dataset = src_dataset
+        else:
+            tgt_dataset = tf.data.TextLineDataset(os.path.join(DATA_DIR, self.mode_dir, "prompts_pp.txt"))
+            # tgt_dataset = tgt_dataset.flat_map(lambda filename: tf.data.TextLineDataset(filename).take(1))
+            # tgt_dataset = tgt_dataset.map(lambda string: tf.string_split([string], delimiter="").values)
+            tgt_dataset = tgt_dataset.map(lambda str: tf.py_func(self.encode, [str], tf.int64))
+            tgt_dataset = tgt_dataset.map(lambda phones: (tf.cast(phones, tf.int32), tf.size(phones)))
+
+            src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+
         # src_tgt_dataset.shuffle(1000)
 
-        if hparams.max_train > 0:
+        if self.mode == tf.estimator.ModeKeys.TRAIN and hparams.max_train > 0:
             src_tgt_dataset = src_tgt_dataset.take(hparams.max_train)
 
         self.batched_dataset = src_tgt_dataset
 
-        def batching_func(x):
-            return x.padded_batch(
-                self.batch_size,
-                padded_shapes=(([None, DCT_COEFFICIENT_COUNT], []),
-                               ([None], [])))
-
-        if hparams.num_buckets > 1:
-            def key_func(src, tgt):
-                bucket_width = 10
-
-                # Bucket sentence pairs by the length of their source sentence and target
-                # sentence.
-                bucket_id = tf.maximum(src[1] // bucket_width, tgt[1] // bucket_width)
-                return tf.to_int64(tf.minimum(hparams.num_buckets, bucket_id))
-
-            def reduce_func(unused_key, windowed_data):
-                return batching_func(windowed_data)
-
-            self.batched_dataset = src_tgt_dataset.apply(
-                tf.contrib.data.group_by_window(
-                    key_func=key_func, reduce_func=reduce_func, window_size=hparams.batch_size))
+        self.batched_dataset = utils.get_batched_dataset(
+            src_tgt_dataset,
+            self.hparams.batch_size,
+            DCT_COEFFICIENT_COUNT,
+            self.hparams.num_buckets, self.mode)
 
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     num_features = DCT_COEFFICIENT_COUNT
     num_classes = len(CHARS) + FIRST_INDEX
-
-    def size(self): return len(self.ls_input_files)
 
     @classmethod
     def encode(cls, s):
