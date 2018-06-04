@@ -2,72 +2,61 @@ import os
 from tensorflow.python.platform import gfile
 import numpy as np
 
-import tensorflow as tf
-from ..utils import utils
-
 from csp.utils import wav_utils
 
-DATA_DIR = os.path.join("data", "vivos")
-
-CHARS = list("aăâeêioôơuưy") + \
-        list("áắấéếíóốớúứý") + \
-        list("àằầèềìòồờùừỳ") + \
-        list("ảẳẩẻểỉỏổởủửỷ") + \
-        list("ãẵẫẽễĩõỗỡũữỹ") + \
-        list("ạặậẹệịọộợụựỵ") + \
-        list("bcdđghiklmnpqrstvxwz") + \
-        ["ch", "tr", "th", "ng", "nh"]
-CHARS = [(-len(s), s) for s in CHARS]
-CHARS.sort()
-CHARS = [s for _, s in CHARS]
+import tensorflow as tf
+from tensorflow.python.ops import io_ops
+from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
+import numpy as np
+from struct import unpack, pack
+from ..utils import utils
 
 # Constants
 SPACE_TOKEN = '<space>'
 SPACE_INDEX = 0
 FIRST_INDEX = 1
 
-DCT_COEFFICIENT_COUNT = 40
+SRC_EOS_ID = 0
+
+DCT_COEFFICIENT_COUNT = 120
 
 class BatchedInput():
+    num_features = DCT_COEFFICIENT_COUNT
+    num_classes = 3260 + 1
+    
     def __init__(self, hparams, mode):
-        # self.prepare_inputs()
-        self.hparams = hparams
         self.mode = mode
-
-        self.mode_dir = "train" if mode == tf.estimator.ModeKeys.TRAIN else "test"
-
-        search_path = os.path.join(DATA_DIR, self.mode_dir, "waves", '**', '*.wav')
-        self.ls_input_files = gfile.Glob(search_path)
-        self.ls_input_files.sort()
-
-        self.size = len(self.ls_input_files)
+        self.hparams = hparams
+        self.size = 50
+        chars = [s.strip().split(' ', 1) for s in
+                    open('/n/rd32/mimura/e2e/data/script/aps/char.id',
+                        encoding='eucjp')]
+        self.decoder_map = {int(char[1]): char[0] for char in chars}
 
     def init_dataset(self):
-        hparams = self.hparams
-        self.batch_size = hparams.batch_size
+        self.filenames = tf.placeholder(dtype=tf.string)
+        self.targets = tf.placeholder(dtype=tf.string)
 
-        # src_dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.int32))
-        self.input_files = tf.placeholder(tf.string, shape=[None])
-        src_dataset = tf.data.Dataset.from_tensor_slices(self.input_files)
-        src_dataset = wav_utils.wav_to_features(src_dataset, hparams, 40)
+        src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
+        src_dataset = src_dataset.map(lambda filename: tf.py_func(self.load_input, [filename], tf.float32))
+        src_dataset = src_dataset.map(lambda feat: (feat, tf.shape(feat)[0]))
 
         if self.mode == tf.estimator.ModeKeys.PREDICT:
             src_tgt_dataset = src_dataset
         else:
-            tgt_dataset = tf.data.TextLineDataset(os.path.join(DATA_DIR, self.mode_dir, "prompts_pp.txt"))
-            # tgt_dataset = tgt_dataset.flat_map(lambda filename: tf.data.TextLineDataset(filename).take(1))
-            # tgt_dataset = tgt_dataset.map(lambda string: tf.string_split([string], delimiter="").values)
-            tgt_dataset = tgt_dataset.map(lambda str: tf.py_func(self.encode, [str], tf.int64))
-            tgt_dataset = tgt_dataset.map(lambda phones: (tf.cast(phones, tf.int32), tf.size(phones)))
+            tgt_dataset = tf.data.Dataset.from_tensor_slices(self.targets)
+            tgt_dataset = tgt_dataset.map(
+                lambda str: tf.cast(tf.py_func(self.extract_target_features, [str], tf.int64), tf.int32))
+            tgt_dataset = tgt_dataset.map(lambda feat: (tf.cast(feat, tf.int32), tf.shape(feat)[0]))
 
             src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
 
-        # src_tgt_dataset.shuffle(1000)
+        if self.mode == tf.estimator.ModeKeys.TRAIN and self.hparams.max_train > 0:
+            src_tgt_dataset.take(self.hparams.max_train)
 
-        if self.mode == tf.estimator.ModeKeys.TRAIN and hparams.max_train > 0:
-            src_tgt_dataset = src_tgt_dataset.take(hparams.max_train)
-
-        self.batched_dataset = src_tgt_dataset
+        src_tgt_dataset.shuffle(1000)
+        if self.mode == tf.estimator.ModeKeys.PREDICT:
+            src_tgt_dataset.take(10)
 
         self.batched_dataset = utils.get_batched_dataset(
             src_tgt_dataset,
@@ -77,57 +66,44 @@ class BatchedInput():
 
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
-    num_features = DCT_COEFFICIENT_COUNT
-    num_classes = len(CHARS) + FIRST_INDEX
+    def load_input(self, filename):
+        fh = open(filename, "rb")
+        spam = fh.read(12)
+        nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
+        veclen = int(sampSize / 4)
+        fh.seek(12, 0)
+        dat = np.fromfile(fh, dtype=np.float32)
+        dat = dat.reshape(int(len(dat) / veclen), veclen)
+        dat = dat.byteswap()
+        fh.close()
+        return dat
 
-    @classmethod
-    def encode(cls, s):
-        s = s.decode('utf-8')
-        s = ' '.join(str(s).strip().lower().split(' ')).replace('.', '').replace(',', '')
-        # s = ' '.join(s.split(' ')[1:])
-        s = s.replace(' ', '  ')
-        targets = s.split(' ')
-
-        target_labels = []
-        for x in targets:
-            if x == '': target_labels.append(SPACE_INDEX)
-            else:
-                start = 0
-                end = len(x) + 1
-                while end >= start and start < len(x):
-                    end -= 1
-                    if x[start:end] in CHARS:
-                        target_labels.append(FIRST_INDEX + CHARS.index(x[start:end]))
-                        start = end
-                        end = len(x) + 1
-
-        return [target_labels]
+    def extract_target_features(self, str):
+        return [[int(x) for x in str.decode('utf-8').split(' ')]]
 
     def reset_iterator(self, sess):
-        sess.run(self.iterator.initializer, feed_dict={ self.input_files: self.ls_input_files })
+        filenames, targets = [], []
+        if self.mode == tf.estimator.ModeKeys.TRAIN:
+            data_filename = "data/aps-sps/train/char_sort_xlen.txt"
+        else:
+            data_filename = "data/aps-sps/test/targets.txt"
+        for line in open(data_filename):
+            if self.mode != tf.estimator.ModeKeys.PREDICT:
+                if line.strip() == "": continue
+                filename, target = line.strip().split(' ', 1)
+                targets.append(target)
+            else:
+                filename = line.strip()
+            filenames.append(filename)
+        self.size = len(filenames)
+        sess.run(self.iterator.initializer, feed_dict={
+            self.filenames: filenames,
+            self.targets: targets
+        })
 
-    @classmethod
-    def decode(cls, d):
-        str_decoded = ""
-        for x in d:
-            if len(CHARS) + FIRST_INDEX > x >= FIRST_INDEX: str_decoded += CHARS[x - FIRST_INDEX]
-            elif x == 0: str_decoded += " "
-            else: break
-        return str_decoded
-
-
-# Preprocessing
-'''
-if __name__ == "__main__":
-    search_path = os.path.join("..", DATA_DIR, "test", "waves", '**', '*.wav')
-    ls_input_files = gfile.Glob(search_path)
-    ls_input_files.sort()
-
-    d = {}
-    with open(os.path.join("..", DATA_DIR, "test", "prompts.txt"), encoding="utf-8") as f:
-        d = { s.split(' ')[0]: ' '.join(s.split(' ')[1:]) for s in f.read().split('\n') }
-
-    sents = [d[os.path.splitext(os.path.basename(path))[0]] for path in ls_input_files]
-    with open(os.path.join("..", DATA_DIR, "test", "prompts_pp.txt"), "w") as f:
-        f.write('\n'.join(sents))
-'''
+    def decode(self, d):
+        ret = ''
+        for c in d:
+            if c > 0:
+                ret += self.decoder_map[c] + '' if c in self.decoder_map else '?'
+        return ret

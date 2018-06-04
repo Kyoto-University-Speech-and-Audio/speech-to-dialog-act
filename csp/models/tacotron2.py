@@ -8,27 +8,29 @@ import time, os
 from .base import BaseModel
 
 import tensorflow as tf
-import pdb
+
 from six.moves import xrange as range
 
-from ..utils import ops_utils
+num_units = 320 # Number of units in the LSTM cell
+# Accounting the 0th indice +  space + blank label = 28 characters
 
-num_units = 320
+# Hyper-parameters
+num_epochs = 10000
+num_hidden = 50
 num_layers = 3
 
 tf.logging.set_verbosity(tf.logging.INFO)
 tf.logging.info('test')
 
-class CTCModel(BaseModel):
-    num_classes = 3260 + 1
-    def __init__(self, hparams, mode, iterator):
-        BaseModel.__init__(self, hparams, mode, iterator)
-        self.num_classes = self.hparams.num_classes
-        self.train_summary = tf.summary.merge([self.train_summary, tf.summary.scalar("train_label_error_rate", self.ler)])
+# val_inputs, val_seq_len, val_targets = audio_processor.next_train_batch(1, 1)
 
+class WavenetModel(BaseModel):
     def _build_graph(self):
         # generate a SparseTensor required by ctc_loss op.
-        self.targets = ops_utils.sparse_tensor(self.target_labels, padding_value=-1)
+        indices = tf.where(tf.not_equal(self.target_labels, tf.constant(-1, tf.int32)))
+        values = tf.gather_nd(self.target_labels, indices)
+        shape = tf.shape(self.target_labels, out_type=tf.int64)
+        self.targets = tf.SparseTensor(indices, values, shape)
 
         # Defining the cell
         # cells = [tf.contrib.rnn.LSTMCell(num_units) for _ in range(num_layers)]
@@ -46,9 +48,9 @@ class CTCModel(BaseModel):
 
         # Reshaping to apply the same weights over the timesteps
         # outputs = tf.reshape(outputs, [-1, num_hidden])
-        logits = tf.layers.dense(outputs, self.num_classes)
+        logits = tf.layers.dense(outputs, self.hparams.num_classes)
         # Reshaping back to the original shape
-        # logits = tf.reshape(logits, [hparams.batch_size, -1, self.num_classes])
+        # logits = tf.reshape(logits, [hparams.batch_size, -1, hparams.num_classes])
 
         # Time major
         logits = tf.transpose(logits, (1, 0, 2))
@@ -65,33 +67,28 @@ class CTCModel(BaseModel):
         self.ler = tf.reduce_mean(tf.edit_distance(tf.cast(self.decoded[0], tf.int32),
                                                    self.targets))
 
-        return self.loss
-
     def train(self, sess):
         # inputs, targets = sess.run([self.inputs, self.targets])
         batch_lost, _, self.summary, _ler, dense_decoded, \
-            inputs, labels, inputs_len, labels_len, logits, global_step = \
+            inputs, labels, inputs_len, labels_len, logits = \
             sess.run([
                 self.loss,
                 self.update,
                 self.train_summary,
                 self.ler,
                 self.dense_decoded,
-                self.inputs, self.target_labels, self.input_seq_len,
-                self.target_seq_len, self.logits,
-                self.global_step
+                self.inputs, self.target_labels, self.input_seq_len, self.target_seq_len, self.logits
             ])
 
-        return batch_lost, global_step
+        return batch_lost, _ler
 
     def eval(self, sess):
-        target_labels, loss, ler, decoded, self.summary = \
+        target_labels, cost, ler, decoded = \
             sess.run([
                 self.target_labels,
-                self.loss,
+                self.cost,
                 self.ler,
-                self.dense_decoded,
-                self.eval_summary
+                self.dense_decoded
             ])
-        return target_labels, loss, decoded
+        return target_labels, cost, ler, decoded
 

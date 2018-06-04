@@ -1,9 +1,6 @@
 import argparse
 import os
 import tensorflow as tf
-import random
-import numpy as np
-import importlib
 import sys
 from .utils import utils
 
@@ -16,13 +13,7 @@ def add_arguments(parser):
 
     parser.add_argument('--dataset', type=str, default="vivos")
     parser.add_argument('--model', type=str, default="ctc")
-    parser.add_argument("--num_units", type=int, default=32, help="Network size.")
-    parser.add_argument("--num_encoder_layers", type=int, default=2,
-                        help="Encoder depth, equal to num_layers if None.")
-    parser.add_argument("--num_decoder_layers", type=int, default=2,
-                        help="Decoder depth, equal to num_layers if None.")
-    parser.add_argument("--random_seed", type=int, default=None,
-                        help="Random seed (>0, set a specific seed).")
+    parser.add_argument('--input_unit', type=str, default="char", help="word | char")
 
     parser.add_argument("--num_buckets", type=int, default=5,
                         help="Put data into similar-length buckets.")
@@ -37,17 +28,16 @@ def add_arguments(parser):
     parser.add_argument("--out_dir", type=str, default=None,
                         help="Store log/model files.")
 
+    parser.add_argument('--server', type="bool", const=True, nargs="?", default=False)
+
 def create_hparams(flags):
     return tf.contrib.training.HParams(
         model=flags.model,
         dataset=flags.dataset,
+        input_unit=flags.input_unit,
 
-        num_units=flags.num_units,
-        num_encoder_layers=flags.num_encoder_layers,
-        num_decoder_layers=flags.num_decoder_layers,
         summaries_dir=flags.summaries_dir,
         out_dir=flags.out_dir or "saved_models/%s_%s" % (flags.model, flags.dataset),
-        num_train_steps=flags.num_train_steps,
 
         num_buckets=flags.num_buckets,
 
@@ -64,7 +54,6 @@ class ModelWrapper:
         self.hparams = hparams
         with self.graph.as_default():
             self.batched_input = BatchedInput(hparams, mode)
-            self.hparams.batch_size = self.batched_input.size
             self.batched_input.init_dataset()
             self.iterator = self.batched_input.iterator
             self.model = Model(
@@ -73,22 +62,15 @@ class ModelWrapper:
                 iterator=self.iterator
             )
 
-    def train(self, sess):
-        return self.model.train(sess)
-
-    def save(self, sess, global_step):
-        tf.logging.info('Saving to "%s-%d"', self.hparams.out_dir, global_step)
-        self.model.saver.save(sess, os.path.join(self.hparams.out_dir, "csp.ckpt"))
-
     def load_model(self, sess, name):
         latest_ckpt = tf.train.latest_checkpoint(self.hparams.out_dir)
         if latest_ckpt:
             self.model.saver.restore(sess, latest_ckpt)
             sess.run(tf.tables_initializer())
-            return self.model
+            global_step = self.model.global_step.eval(session=sess)
+            return global_step
 
-def infer(Model, BatchedInput, hparams):
-    hparams.num_classes = BatchedInput.num_classes
+def load(Model, BatchedInput, hparams):
     infer_model = ModelWrapper(
         hparams,
         tf.estimator.ModeKeys.PREDICT,
@@ -98,37 +80,52 @@ def infer(Model, BatchedInput, hparams):
     infer_sess = tf.Session(graph=infer_model.graph)
 
     with infer_model.graph.as_default():
-        loaded_infer_model = infer_model.load_model(
+        global_step = infer_model.load_model(
             infer_sess, "infer"
         )
 
         infer_model.batched_input.reset_iterator(infer_sess)
-        sample_ids = loaded_infer_model.infer(infer_sess)
 
-        # decoded_txt =
-        # tf.summary.text('decoded_text', tf.py_func)
+    return infer_sess, infer_model, global_step
 
-    for i in range(len(sample_ids[0])):
-        # str_original = BatchedInput.decode(target_labels[i])
-        str_decoded = BatchedInput.decode(sample_ids[0][i])
 
-        # print('Original: %s' % str_original)
-        print('Decoded:  %s' % str_decoded)
+def infer(infer_sess, infer_model, hparams):
+    with infer_model.graph.as_default():
+        while True:
+            try:
+                sample_ids = infer_model.model.infer(infer_sess)
+                writer = tf.summary.FileWriter(
+                    os.path.join(hparams.summaries_dir, "%s_%s" % (hparams.model, hparams.dataset), "log_infer"),
+                    infer_sess.graph)
+                writer.add_summary(infer_model.model.summary, global_step)
 
-    # tf.logging.info("test_cost = {:.3f}, test_ler = {:.3f}".format(test_cost, test_ler))
+                for i in range(len(sample_ids)):
+                    # str_original = BatchedInput.decode(target_labels[i])
+                    str_decoded = infer_model.batched_input.decode(sample_ids[i])
+
+                    # print('Original: %s' % str_original)
+                    print('Decoded:  %s' % str_decoded)
+            except tf.errors.OutOfRangeError:
+                break
 
 def main(unused_argv):
     hparams = create_hparams(FLAGS)
-
-    random_seed = FLAGS.random_seed
-    if random_seed is not None and random_seed > 0:
-        random.seed(random_seed)
-        np.random.seed(random_seed)
+    hparams.batch_size = 1
 
     BatchedInput = utils.get_batched_input_class(FLAGS)
     Model = utils.get_model_class(FLAGS)
 
-    infer(Model, BatchedInput, hparams)
+    print(FLAGS.server)
+    if FLAGS.server:
+        from flask import Flask
+        app = Flask(__name__)
+
+        @app.route("/")
+        def hello():
+            return "Hello"
+    else:
+        infer_sess, infer_model, global_step = load(Model, BatchedInput, hparams)
+        infer(infer_sess, infer_model, hparams)
 
 
 if __name__ == "__main__":

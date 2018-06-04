@@ -1,0 +1,8 @@
+{
+    "name": "attention_aps_word",
+    "model": "attention",
+    "dataset": "aps",
+    "input_unit": "word",
+    
+    "beam_width": 0
+}

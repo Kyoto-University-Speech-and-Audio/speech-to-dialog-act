@@ -108,3 +108,34 @@ def pad_sequences(sequences, maxlen=None, dtype=np.float32,
         else:
             raise ValueError('Padding type "%s" not understood' % padding)
     return x, lengths
+
+def create_hparams(flags):
+    hparams = tf.contrib.training.HParams(
+        model=flags.model,
+        dataset=flags.dataset,
+				name=flags.name,
+        input_unit=flags.input_unit,
+
+		batch_size=flags.batch_size,
+        num_buckets=flags.num_buckets,
+
+        sample_rate=flags.sample_rate,
+        window_size_ms=flags.window_size_ms,
+        window_stride_ms=flags.window_stride_ms,
+
+        epoch_step=0,
+
+        summaries_dir=None,
+        out_dir=None,
+        beam_width=4,
+    )
+
+    if flags.config is not None:
+        json = open('csp/model_configs/%s.json' % FLAGS.config).read()
+        hparams.parse_json(json)
+        tf.loggng.info(hparams)
+
+    hparams.set_hparam('summaries_dir', "log/" + flags.name)
+    hparams.set_hparam('out_dir', "saved_models/" + flags.name)
+
+    return hparams

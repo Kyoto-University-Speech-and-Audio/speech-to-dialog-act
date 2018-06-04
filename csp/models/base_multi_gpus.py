@@ -20,7 +20,9 @@ class BaseModel(object):
         self.eval_mode = self.mode == tf.estimator.ModeKeys.EVAL
         self.infer_mode = self.mode == tf.estimator.ModeKeys.PREDICT
 
-        self.global_step = tf.Variable(0, trainable=True)
+        self.global_step = tf.train.get_or_create_global_step()
+
+        params = tf.trainable_variables()
 
         if self.train_mode:
             self.learning_rate = tf.constant(hparams.learning_rate)
@@ -34,27 +36,52 @@ class BaseModel(object):
             elif hparams.optimizer == "momentum":
                 opt = tf.train.MomentumOptimizer(self.learning_rate,
                                                             0.9).minimize(self.loss)
-            ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
-                self.iterator.get_next()
-            self.batch_size = tf.shape(self.input_seq_len)[0]
-            self.loss = self._build_graph()
+            tower_grads = []
+            losses = []
+            controller = "/cpu:0"
+            with tf.variable_scope(tf.get_variable_scope()) as outer_scope:
+                for i, id in enumerate(self.get_available_gpus()):
+                    ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
+                        self.iterator.get_next()
+                    self.batch_size = tf.shape(self.input_seq_len)[0]
+                    name = 'tower_%d' % i
+                    with tf.device(self.assign_to_device(id, controller)), tf.name_scope(name):
+                        loss = self._build_graph()
+                        with tf.name_scope("compute_gradients"):
+                            grads = opt.compute_gradients(loss)
+                            tower_grads.append(grads)
+                        losses.append(loss)
+                    outer_scope.reuse_variables()
 
-            params = tf.trainable_variables()
-            gradients = tf.gradients(
-                self.loss,
-                params,
-                colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
+            with tf.name_scope("apply_gradients"), tf.device(controller):
+                average_grads = []
+                for grad_and_vars in zip(*tower_grads):
+                    grads = [g for g, _ in grad_and_vars]
+                    grad = tf.reduce_mean(grads, 0)
+                    v = grad_and_vars[0][1]
+                    grad_and_var = (grad, v)
+                    average_grads.append(grad_and_var)
+                self.update = opt.apply_gradients(average_grads, self.global_step)
+                self.loss = tf.reduce_mean(losses)
 
-            clipped_grads, grad_norm_summary, grad_norm = model_utils.gradient_clip(
-                gradients, max_gradient_norm=MAX_GRADIENT_NORM)
-            self.grad_norm = grad_norm
+            #gradients = tf.gradients(
+            #    self.loss,
+            #    params,
+            #    colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
-            self.update = opt.apply_gradients(zip(clipped_grads, params), global_step=self.global_step)
+            #clipped_grads, grad_norm_summary, grad_norm = model_utils.gradient_clip(
+            #    gradients, max_gradient_norm=MAX_GRADIENT_NORM)
+            #self.grad_norm = grad_norm
+
+            #self.update = opt.apply_gradients(zip(clipped_grads, params), global_step=self.global_step)
 
             self.train_summary = tf.summary.merge([
                 tf.summary.scalar('train_loss', self.loss),
                 tf.summary.scalar("learning_rate", self.learning_rate),
-            ] + grad_norm_summary)
+            ])
+
+            if self.infer_mode:
+                self.infer_summary = self._get_infer_summary(hparams)
 
             print("# Trainable variables")
             for param in params:
@@ -64,10 +91,6 @@ class BaseModel(object):
             ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
                 self.iterator.get_next()
             self.batch_size = tf.shape(self.input_seq_len)[0]
-            self.loss = self._build_graph()
-            self.eval_summary = tf.summary.merge([
-                tf.summary.scalar('eval_loss', self.loss),
-            ])
         elif self.infer_mode:
             self.inputs, self.input_seq_len = self.iterator.get_next()
             self.target_labels, self.target_seq_len = None, None
@@ -159,3 +182,6 @@ class BaseModel(object):
                 (self.global_step - start_decay_step),
                 decay_steps, decay_factor, staircase=True),
             name="learning_rate_decay_cond")
+
+    def _get_infer_summary(self, hparams):
+        return tf.no_op()

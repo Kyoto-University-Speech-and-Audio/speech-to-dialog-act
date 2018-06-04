@@ -1,0 +1,7 @@
+{
+    "name": "attention_aps_char",
+    "model": "attention",
+    "dataset": "aps",
+    
+    "beam_width": 0
+}

@@ -13,43 +13,35 @@ from ..utils import utils
 import random
 from .base import BaseInputData
 
-# Constants
-SPACE_TOKEN = '<space>'
-SPACE_INDEX = 0
-FIRST_INDEX = 1
-
-DCT_COEFFICIENT_COUNT = 120
-
+DCT_COEFFICIENT_COUNT = 40
 
 class BatchedInput(BaseInputData):
     num_features = DCT_COEFFICIENT_COUNT
-    # num_classes = 3260 + 1
-    # num_classes = 34331
     
     def __init__(self, hparams, mode):
         self.mode = mode
         self.hparams = hparams
 
         if hparams.input_unit == 'char':
-            chars = [s.strip().split(' ', 1) for s in open('/n/rd32/mimura/e2e/data/script/aps_sps/char.id', encoding='eucjp')]
-            self.decoder_map = {int(char[1]): char[0] for char in chars}
-            self.num_classes = len(chars) + 1
+            chars = [s.strip().split(' ', 1) for s in open('data/vivos/chars.txt', encoding='utf-8')]
+            self.decoder_map = {int(char[0]): char[1] for char in chars}
+            self.num_classes = len(chars)
         else:
-            words = [s.strip().split(' ', 1) for s in open('/n/rd32/mimura/e2e/data/script/aps_sps/word.id', encoding='eucjp')]
-            self.decoder_map = {int(word[1]): word[0].split('+')[0] for word in words}
+            words = [s.strip().split(' ', 1) for s in open('data/vivos/words.txt', encoding='utf-8')] 
+            self.decoder_map = {int(word[0]): word[1] for word in words}
             self.num_classes = len(words)
 
         BaseInputData.__init__(self, hparams, mode)
 
         filenames, targets = [], []
         if self.mode == tf.estimator.ModeKeys.TRAIN:
-            data_filename = "data/aps-sps/train/char_sort_xlen.txt" if self.hparams.input_unit == 'char' \
-                else "data/aps-sps/train/word_sort_xlen.txt"
+            data_filename = "data/vivos/train/data_chars.txt" if self.hparams.input_unit == 'char' \
+                else "data/vivos/train/data.txt"
         elif self.mode == tf.estimator.ModeKeys.EVAL:
-            data_filename = "data/aps-sps/test/char_targets.txt" if self.hparams.input_unit == "char" \
-                else "data/aps-sps/test/word_targets.txt"
+            data_filename = "data/vivos/test/data_chars.txt" if self.hparams.input_unit == "char" \
+                else "data/vivos/test/data.txt"
         else:
-            data_filename = "data/aps-sps/infer/test.txt"
+            data_filename = "data/vivos/infer/test.txt"
 
         for line in open(data_filename):
             if self.mode != tf.estimator.ModeKeys.PREDICT:
@@ -68,7 +60,9 @@ class BatchedInput(BaseInputData):
         self.targets = tf.placeholder(dtype=tf.string)
 
         src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
-        src_dataset = src_dataset.map(lambda filename: tf.py_func(self.load_input, [filename], tf.float32))
+        src_dataset = src_dataset.map(lambda filename:
+                tf.cast(tf.py_func(self.load_input, [filename], tf.float64),
+                    tf.float32))
         src_dataset = src_dataset.map(lambda feat: (feat, tf.shape(feat)[0]))
 
         if self.mode == tf.estimator.ModeKeys.PREDICT:
@@ -80,6 +74,9 @@ class BatchedInput(BaseInputData):
             tgt_dataset = tgt_dataset.map(lambda feat: (tf.cast(feat, tf.int32), tf.shape(feat)[0]))
 
             src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+
+        if self.mode == tf.estimator.ModeKeys.TRAIN and self.hparams.max_train > 0:
+            src_tgt_dataset.take(self.hparams.max_train)
 
         if self.mode == tf.estimator.ModeKeys.PREDICT:
             src_tgt_dataset.take(10)
@@ -109,18 +106,7 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def load_input(self, filename):
-        fh = open(filename, "rb")
-        spam = fh.read(12)
-        nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
-        veclen = int(sampSize / 4)
-        fh.seek(12, 0)
-        dat = np.fromfile(fh, dtype=np.float32)
-        if len(dat) % veclen != 0: dat = dat[:len(dat) - len(dat) % veclen]
-        dat = dat.reshape(len(dat) // veclen, veclen)
-        dat = dat.byteswap()
-        fh.close()
-        return dat
-
+        return np.load(filename.decode('utf-8') + '.npy').astype(float)
 
     def extract_target_features(self, str):
         return [[int(x) for x in str.decode('utf-8').split(' ')]]
@@ -130,7 +116,7 @@ class BatchedInput(BaseInputData):
         targets = self.input_targets
         
         if shuffle:
-            bucket = 2000
+            bucket = 100
             shuffled_filenames = []
             shuffled_targets = []
             start, end = 0, 0
@@ -153,12 +139,13 @@ class BatchedInput(BaseInputData):
         })
 
     def decode(self, d):
-        ret = []
+        return d
+        ret = ''
         for c in d:
             if c <= 0: continue
             if self.hparams.input_unit == "word":
                 if c == 1: return ret # sos
             # ret += str(c) + " "
-            if self.decoder_map[c] == '<sos>': continue
-            ret.append(self.decoder_map[c] if c in self.decoder_map else '?')
+            blank = ' ' if self.hparams.input_unit == "word" else ''
+            ret += self.decode_map[c] + " " + blank if c in self.decoder_map else '?'
         return ret
