@@ -33,11 +33,11 @@ class BatchedInput(BaseInputData):
         self.hparams = hparams
 
         if hparams.input_unit == 'char':
-            chars = [s.strip().split(' ', 1) for s in open('/n/rd32/mimura/e2e/data/script/aps_sps/char.id', encoding='eucjp')]
+            chars = [s.strip().split(' ', 1) for s in open('data/aps-sps/char.id', encoding='eucjp')]
             self.decoder_map = {int(char[1]): char[0] for char in chars}
             self.num_classes = len(chars) + 1
         else:
-            words = [s.strip().split(' ', 1) for s in open('/n/rd32/mimura/e2e/data/script/aps_sps/word.id', encoding='eucjp')]
+            words = [s.strip().split(' ', 1) for s in open('data/aps-sps/word.id', encoding='eucjp')]
             self.decoder_map = {int(word[1]): word[0].split('+')[0] for word in words}
             self.num_classes = len(words)
 
@@ -111,7 +111,7 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def load_input(self, filename):
-        if filename[-3:].decode('utf-8') == u"htk":
+        if os.path.splitext(filename)[1] == ".htk":
             fh = open(filename, "rb")
             spam = fh.read(12)
             nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
@@ -124,9 +124,9 @@ class BatchedInput(BaseInputData):
             fh.close()
             return dat
         else:
-            mean = open("/n/sd7/trung/data/aps_sps_mean.dat").read().split('\n')[:-1]
+            mean = open("data/aps-sps/mean.dat").read().split('\n')[:-1]
             mean = np.array([float(x) for x in mean])
-            var = open("/n/sd7/trung/data/aps_sps_var.dat").read().split('\n')[:-1]
+            var = open("data/aps-sps/var.dat").read().split('\n')[:-1]
             var = np.array([float(x) for x in var])
 
             outfile = "/n/sd7/trung/tmp/tmp.htk"
