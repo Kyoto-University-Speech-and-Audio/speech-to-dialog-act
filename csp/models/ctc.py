@@ -24,7 +24,8 @@ class CTCModel(BaseModel):
     def __init__(self, hparams, mode, iterator):
         BaseModel.__init__(self, hparams, mode, iterator)
         self.num_classes = self.hparams.num_classes
-        self.train_summary = tf.summary.merge([self.train_summary, tf.summary.scalar("train_label_error_rate", self.ler)])
+        if self.train_mode:
+            self.train_summary = tf.summary.merge([self.train_summary, tf.summary.scalar("train_label_error_rate", self.ler)])
 
     def _build_graph(self):
         # generate a SparseTensor required by ctc_loss op.
@@ -91,7 +92,7 @@ class CTCModel(BaseModel):
                 self.loss,
                 self.ler,
                 self.dense_decoded,
-                self.eval_summary
+                self.summary
             ])
         return target_labels, loss, decoded
 

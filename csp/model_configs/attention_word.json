@@ -1,0 +1,7 @@
+{
+    "name": "attention_word",
+    "model": "attention",
+    "input_unit": "word",
+    
+    "beam_width": 16
+}

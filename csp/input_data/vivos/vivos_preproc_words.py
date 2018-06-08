@@ -3,6 +3,7 @@ from tensorflow.python.platform import gfile
 import scipy.io.wavfile as wav
 from python_speech_features import *
 import numpy as np
+from subprocess import call
 
 DATA_DIR = os.path.join("data", "vivos")
 
@@ -22,19 +23,25 @@ if __name__ == "__main__":
             wav_filename = os.path.join("data", "vivos", mode, "waves", filename.split('_')[0], filename + ".wav")
             (rate, sig) = wav.read(wav_filename)
 
-            mfcc_feat = mfcc(sig, rate, numcep=40, nfiltk40)
+            # mfcc_feat = mfcc(sig, rate, numcep=40, nfilt=40)
             # d_mfcc_feat = delta(mfcc_feat, 1)
             # d2_mfcc_feat = delta(d_mfcc_feat, 1)
 
-            fbank_feat = logfbank(sig, rate)
+            # fbank_feat = logfbank(sig, rate)
             # d_fbank_feat = delta(fbank_feat, 1)
             # d2_fbank_feat = delta(d_fbank_feat, 1)
-
+            
             # feat = [np.concatenate([x, y, z]).astype(np.float32) for x, y, z in zip(mfcc_feat, d_mfcc_feat, d2_mfcc_feat)]
-            feat = fbank_feat.astype(np.float32)
+            # feat = fbank_feat.astype(np.float32)
             # feat = [np.concatenate([x, y, z]) for x, y, z in zip(fbank_feat, d_fbank_feat, d2_fbank_feat)]
-            filename = os.path.join("data", "vivos", mode, "feature", filename)
-            np.save(filename, feat)
+            filename = os.path.join("data", "vivos", mode, "feature", filename + ".htk")
+            # np.save(filename, feat)
+            call([
+                "/n/sd7/trung/bin/htk/HTKTools/HCopy",
+                wav_filename,
+                filename,
+                "-C", "/n/sd7/trung/config.lmfb.40ch"
+            ])
 
             outputs.append(
                 (filename,

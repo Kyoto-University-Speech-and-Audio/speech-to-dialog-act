@@ -85,7 +85,7 @@ def eval(hparams, output=True):
         
     while True:
         try:
-            target_labels, _, decoded = loaded_eval_model.eval(eval_sess)
+            target_labels, _, decoded, summary = loaded_eval_model.eval(eval_sess)
 
             for i in range(len(target_labels)):
                 str_original = eval_model.batched_input.decode(target_labels[i])
@@ -103,7 +103,7 @@ def eval(hparams, output=True):
         except tf.errors.OutOfRangeError:
             break
 
-    eval_writer.add_summary(eval_model.model.summary, global_step)
+    eval_writer.add_summary(summary, global_step)
     eval_writer.add_summary(tf.Summary(value=[tf.Summary.Value(simple_value=test_ler / total_count, tag="label_error_rate")]), global_step)
 
     tf.logging.info("test_ler = {:.3f}".format(test_ler / total_count))

@@ -4,5 +4,7 @@
     "dataset": "aps",
     "input_unit": "word",
     
+    "eos_index": 1,
+    "sos_index": 2,
     "beam_width": 0
 }

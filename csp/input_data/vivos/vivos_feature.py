@@ -1,13 +1,19 @@
-import random
-
+import os
+from tensorflow.python.platform import gfile
 import numpy as np
-import tensorflow as tf
 
 from csp.utils import wav_utils
-from .base import BaseInputData
-from ..utils import utils
 
-DCT_COEFFICIENT_COUNT = 120
+import tensorflow as tf
+from tensorflow.python.ops import io_ops
+from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
+import numpy as np
+from struct import unpack, pack
+from ..utils import utils
+import random
+from .base import BaseInputData
+
+DCT_COEFFICIENT_COUNT = 40
 
 class BatchedInput(BaseInputData):
     num_features = DCT_COEFFICIENT_COUNT
@@ -68,6 +74,9 @@ class BatchedInput(BaseInputData):
             tgt_dataset = tgt_dataset.map(lambda feat: (tf.cast(feat, tf.int32), tf.shape(feat)[0]))
 
             src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+
+        if self.mode == tf.estimator.ModeKeys.TRAIN and self.hparams.max_train > 0:
+            src_tgt_dataset.take(self.hparams.max_train)
 
         if self.mode == tf.estimator.ModeKeys.PREDICT:
             src_tgt_dataset.take(10)
@@ -130,7 +139,7 @@ class BatchedInput(BaseInputData):
         })
 
     def decode(self, d):
-        # return str(d)
+        return d
         ret = ''
         for c in d:
             if c <= 0: continue
@@ -138,5 +147,5 @@ class BatchedInput(BaseInputData):
                 if c == 1: return ret # sos
             # ret += str(c) + " "
             blank = ' ' if self.hparams.input_unit == "word" else ''
-            ret += self.decoder_map[c] + " " + blank if c in self.decoder_map else '?'
+            ret += self.decode_map[c] + " " + blank if c in self.decoder_map else '?'
         return ret

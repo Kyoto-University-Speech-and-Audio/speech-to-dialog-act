@@ -65,13 +65,15 @@ class BaseModel(object):
                 self.iterator.get_next()
             self.batch_size = tf.shape(self.input_seq_len)[0]
             self.loss = self._build_graph()
-            self.eval_summary = tf.summary.merge([
+            self.summary = tf.summary.merge([
                 tf.summary.scalar('eval_loss', self.loss),
             ])
         elif self.infer_mode:
             self.inputs, self.input_seq_len = self.iterator.get_next()
+            self.batch_size = tf.shape(self.input_seq_len)[0]
             self.target_labels, self.target_seq_len = None, None
-            self.infer_summary = self._get_infer_summary(hparams)
+            self._build_graph()
+            # self.summary = self._get_attention_summary(hparams)
         self.saver = tf.train.Saver(tf.global_variables())
 
     def get_available_gpus(self):

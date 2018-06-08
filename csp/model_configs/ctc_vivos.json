@@ -1,0 +1,7 @@
+{
+    "name": "ctc_vivos",
+    "model": "ctc",
+    "dataset": "vivos",
+    
+    "beam_width": 4
+}

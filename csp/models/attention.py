@@ -26,9 +26,10 @@ class AttentionModel(BaseModel):
         BaseModel.__init__(self, hparams, mode, iterator)
 
         if self.infer_mode or self.eval_mode:
-            self.infer_summary = self._get_attention_summary(hparams)
-        if self.eval_mode:
-            self.eval_summary = tf.summary.merge([self.eval_summary, self._get_attention_summary(hparams)])
+            attention_summary = self._get_attention_summary(hparams)
+            if attention_summary is not None:
+                self.summary = tf.summary.merge([attention_summary])
+            else: self.summary = tf.no_op()
 
     def _build_graph(self):
         if False:
@@ -44,31 +45,23 @@ class AttentionModel(BaseModel):
                 ], 1)
                 self.target_seq_len = tf.add(2, self.target_seq_len)
         else:
-            if self.hparams.input_unit == "char":
-                self.TGT_EOS_INDEX = 0
-                self.TGT_SOS_INDEX = 1
-            else:
-                self.TGT_EOS_INDEX = 1
-                self.TGT_SOS_INDEX = 2
             self.num_classes = self.hparams.num_classes
 
         if not self.infer_mode:
             self.targets = tf.one_hot(self.target_labels, depth=self.num_classes)
-
+            # remove <sos> in target labels to feed into output
             target_labels = tf.slice(self.target_labels, [0, 1],
                                      [self.batch_size, tf.shape(self.target_labels)[1] - 1])
             target_labels = tf.concat([
                 target_labels,
-                tf.fill([self.batch_size, 1], self.TGT_EOS_INDEX)
+                tf.fill([self.batch_size, 1], self.hparams.eos_index)
             ], 1)
 
-        # Projection
+        # Projection layer
         self.output_layer = layers_core.Dense(self.num_classes, use_bias=False, name="output_projection")
         
-        # Encoder
         encoder_outputs, encoder_state = self._build_encoder()
         
-        # Decoder
         logits, self.sample_id, self.final_context_state = \
             self._build_decoder(encoder_outputs, encoder_state)
 
@@ -76,7 +69,9 @@ class AttentionModel(BaseModel):
 
         if self.train_mode or self.eval_mode:
             loss = self._compute_loss(logits, target_labels)
-            return loss
+        else:
+            loss = None
+        return loss
 
     def _compute_loss(self, logits, target_labels):
         if self.eval_mode:
@@ -163,8 +158,8 @@ class AttentionModel(BaseModel):
                     decoder = tf.contrib.seq2seq.BeamSearchDecoder(
                         decoder_cell,
                         lambda ids: decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
-                        start_tokens=tf.fill([self.batch_size], self.TGT_SOS_INDEX),
-                        end_token=self.TGT_EOS_INDEX,
+                        start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
+                        end_token=self.hparams.eos_index,
                         initial_state=decoder_initial_state,
                         beam_width=self.hparams.beam_width,
                         output_layer=self.output_layer,
@@ -174,16 +169,16 @@ class AttentionModel(BaseModel):
                     if SAMPLING_TEMPERATURE > 0.0:
                         helper = tf.contrib.seq2seq.SampleEmbeddingHelper(
                             lambda ids: decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
-                            start_tokens=tf.fill([self.batch_size], self.TGT_SOS_INDEX),
-                            end_token=self.TGT_EOS_INDEX,
+                            start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
+                            end_token=self.hparams.eos_index,
                             softmax_temperature=SAMPLING_TEMPERATURE,
                             seed=1001
                         )
                     else:
                         helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
                             lambda ids: decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
-                            start_tokens=tf.fill([self.batch_size], self.TGT_SOS_INDEX),
-                            end_token=self.TGT_EOS_INDEX
+                            start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
+                            end_token=self.hparams.eos_index
                         )
 
                     decoder = tf.contrib.seq2seq.BasicDecoder(
@@ -220,27 +215,26 @@ class AttentionModel(BaseModel):
         return loss, global_step
 
     def eval(self, sess):
-        target_labels, loss, sample_ids, self.summary = sess.run([
+        target_labels, loss, sample_ids, summary = sess.run([
             self.target_labels,
             self.loss,
             self.sample_id,
-            self.eval_summary
+            self.summary
         ])
-        return target_labels[:, 1:-1], loss, sample_ids
+        return target_labels[:, 1:-1], loss, sample_ids, summary
 
 
     def infer(self, sess):
-        inputs = sess.run(self.inputs)
-        sample_ids, self.summary = sess.run([
-            self.sample_id, self.infer_summary
+        sample_ids, summary = sess.run([
+            self.sample_id, self.summary
         ])
 
-        return sample_ids
+        return sample_ids, summary
 
     def _get_attention_summary(self, hparams):
-        if self.hparams.beam_width > 0: return tf.no_op()
-        attention_images = self.final_context_state.alignment_history.stack()
-        attention_images = tf.expand_dims(tf.transpose(attention_images, [1, 0, 2]), -1)
+        if self.hparams.beam_width > 0: return None
+        attention_images = self.final_context_state.alignment_history.stack() # batch_size * T * max_len
+        attention_images = tf.expand_dims(tf.transpose(attention_images, [1, 0, 2]), -1) # batch_size * max_len * # T * 1
         attention_images *= 255
         attention_summary = tf.summary.image("attention_images", attention_images, max_outputs=10)
         return attention_summary

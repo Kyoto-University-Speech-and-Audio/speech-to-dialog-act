@@ -2,7 +2,7 @@ import os
 from tensorflow.python.platform import gfile
 import numpy as np
 
-from csp.utils import wav_utils
+from ..utils import wav_utils
 
 import tensorflow as tf
 from tensorflow.python.ops import io_ops
@@ -12,6 +12,8 @@ from struct import unpack, pack
 from ..utils import utils
 import random
 from .base import BaseInputData
+
+from subprocess import call, PIPE
 
 # Constants
 SPACE_TOKEN = '<space>'
@@ -49,7 +51,7 @@ class BatchedInput(BaseInputData):
             data_filename = "data/aps-sps/test/char_targets.txt" if self.hparams.input_unit == "char" \
                 else "data/aps-sps/test/word_targets.txt"
         else:
-            data_filename = "data/aps-sps/infer/test.txt"
+            data_filename = hparams.input_path
 
         for line in open(data_filename):
             if self.mode != tf.estimator.ModeKeys.PREDICT:
@@ -109,17 +111,44 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def load_input(self, filename):
-        fh = open(filename, "rb")
-        spam = fh.read(12)
-        nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
-        veclen = int(sampSize / 4)
-        fh.seek(12, 0)
-        dat = np.fromfile(fh, dtype=np.float32)
-        if len(dat) % veclen != 0: dat = dat[:len(dat) - len(dat) % veclen]
-        dat = dat.reshape(len(dat) // veclen, veclen)
-        dat = dat.byteswap()
-        fh.close()
-        return dat
+        if filename[-3:].decode('utf-8') == u"htk":
+            fh = open(filename, "rb")
+            spam = fh.read(12)
+            nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
+            veclen = int(sampSize / 4)
+            fh.seek(12, 0)
+            dat = np.fromfile(fh, dtype=np.float32)
+            if len(dat) % veclen != 0: dat = dat[:len(dat) - len(dat) % veclen]
+            dat = dat.reshape(len(dat) // veclen, veclen)
+            dat = dat.byteswap()
+            fh.close()
+            return dat
+        else:
+            mean = open("/n/sd7/trung/data/aps_sps_mean.dat").read().split('\n')[:-1]
+            mean = np.array([float(x) for x in mean])
+            var = open("/n/sd7/trung/data/aps_sps_var.dat").read().split('\n')[:-1]
+            var = np.array([float(x) for x in var])
+
+            outfile = "/n/sd7/trung/tmp/tmp.htk"
+            call([
+                "/n/sd7/trung/bin/htk/HTKTools/HCopy",
+                "-C", "/n/sd7/trung/config.lmfb.40ch", "-T", "1",
+                filename, outfile
+            ], stdout=PIPE)
+            fh = open(outfile, "rb")
+            spam = fh.read(12)
+            nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
+            veclen = int(sampSize / 4)
+            fh.seek(12, 0)
+            dat = np.fromfile(fh, dtype=np.float32)
+            dat = dat.reshape(len(dat) // veclen, veclen)
+            dat = dat.byteswap()
+            fh.close()
+
+            dat = (dat - mean) / np.sqrt(var)
+            fh.close()
+
+            return np.float32(dat)
 
 
     def extract_target_features(self, str):

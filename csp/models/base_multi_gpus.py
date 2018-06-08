@@ -81,7 +81,7 @@ class BaseModel(object):
             ])
 
             if self.infer_mode:
-                self.infer_summary = self._get_infer_summary(hparams)
+                self.summary = self._get_infer_summary(hparams)
 
             print("# Trainable variables")
             for param in params:
@@ -94,7 +94,7 @@ class BaseModel(object):
         elif self.infer_mode:
             self.inputs, self.input_seq_len = self.iterator.get_next()
             self.target_labels, self.target_seq_len = None, None
-            self.infer_summary = self._get_infer_summary(hparams)
+            self.summary = self._get_infer_summary(hparams)
         self.saver = tf.train.Saver(tf.global_variables())
 
     def get_available_gpus(self):

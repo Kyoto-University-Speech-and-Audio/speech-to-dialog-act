@@ -73,6 +73,11 @@ def get_batched_dataset(dataset, batch_size, coef_count, num_buckets, mode, padd
                     key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
 
 def create_hparams(flags):
+    def argval(name):
+        if hasattr(flags, name):
+            return getattr(flags, name)
+        else: return None
+
     hparams = tf.contrib.training.HParams(
         model=flags.model,
         dataset=flags.dataset,
@@ -99,7 +104,14 @@ def create_hparams(flags):
         colocate_gradients_with_ops=True,
 
         learning_rate=1e-3,
-        optimizer="adam"
+        optimizer="adam",
+
+        # Attention
+        sos_index=1,
+        eos_index=2,
+
+        # Infer
+        input_path=argval("input_path") or "/n/sd7/trung/test.txt",
     )
 
     if flags.config is not None:

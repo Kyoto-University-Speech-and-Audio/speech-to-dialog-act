@@ -1,0 +1,8 @@
+{
+    "name": "attention_vivos_word",
+    "model": "attention",
+    "dataset": "vivos",
+    "input_unit": "word",
+    
+    "beam_width": 0
+}
