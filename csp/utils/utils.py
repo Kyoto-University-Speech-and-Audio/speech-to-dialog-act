@@ -112,6 +112,7 @@ def create_hparams(flags):
 
         # Infer
         input_path=argval("input_path") or "/n/sd7/trung/test.txt",
+        hcopy_path=None
     )
 
     if flags.config is not None:

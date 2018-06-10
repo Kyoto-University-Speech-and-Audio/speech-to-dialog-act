@@ -1,0 +1,5 @@
+saved_models
+data
+tmp
+**/__pycache__
+.idea

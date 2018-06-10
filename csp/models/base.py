@@ -13,7 +13,6 @@ PS_OPS = [
 
 class BaseModel(object):
     def __init__(self, hparams, mode, iterator):
-        self.iterator = iterator
         self.hparams = hparams
         self.mode = mode
         self.train_mode = self.mode == tf.estimator.ModeKeys.TRAIN
@@ -22,6 +21,7 @@ class BaseModel(object):
 
         self.global_step = tf.Variable(0, trainable=True)
 
+        self.iterator = iterator
         if self.train_mode:
             self.learning_rate = tf.constant(hparams.learning_rate)
             self.learning_rate = self._get_learning_rate_warmup(hparams)
@@ -34,8 +34,6 @@ class BaseModel(object):
             elif hparams.optimizer == "momentum":
                 opt = tf.train.MomentumOptimizer(self.learning_rate,
                                                             0.9).minimize(self.loss)
-            ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
-                self.iterator.get_next()
             self.batch_size = tf.shape(self.input_seq_len)[0]
             self.loss = self._build_graph()
 
@@ -61,20 +59,30 @@ class BaseModel(object):
                 print("  %s, %s, %s" % (param.name, str(param.get_shape()),
                                                   param.op.device))
         elif self.eval_mode:
-            ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
-                self.iterator.get_next()
             self.batch_size = tf.shape(self.input_seq_len)[0]
             self.loss = self._build_graph()
             self.summary = tf.summary.merge([
                 tf.summary.scalar('eval_loss', self.loss),
             ])
         elif self.infer_mode:
-            self.inputs, self.input_seq_len = self.iterator.get_next()
             self.batch_size = tf.shape(self.input_seq_len)[0]
             self.target_labels, self.target_seq_len = None, None
             self._build_graph()
             # self.summary = self._get_attention_summary(hparams)
         self.saver = tf.train.Saver(tf.global_variables())
+
+    @property
+    def iterator(self):
+        return self._iterator
+
+    @iterator.setter
+    def iterator(self, value):
+        self._iterator = value
+        if self.eval_mode or self.train_mode:
+            ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
+                self._iterator.get_next()
+        else:
+            self.inputs, self.input_seq_len = self._iterator.get_next()
 
     def get_available_gpus(self):
         from tensorflow.python.client import device_lib

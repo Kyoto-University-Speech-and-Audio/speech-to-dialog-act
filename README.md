@@ -21,3 +21,10 @@ python -m csp.train --config=attention_char --dataset=aps
 # or
 python -m csp.train --config=attention_word --dataset=aps
 ```
+
+# Inference
+
+Online
+```
+python -m csp.infer_online --config=attention_aps_char
+```

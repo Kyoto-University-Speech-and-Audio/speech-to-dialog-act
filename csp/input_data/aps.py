@@ -53,7 +53,7 @@ class BatchedInput(BaseInputData):
         else:
             data_filename = hparams.input_path
 
-        for line in open(data_filename):
+        for line in open(data_filename, "r"):
             if self.mode != tf.estimator.ModeKeys.PREDICT:
                 if line.strip() == "": continue
                 filename, target = line.strip().split(' ', 1)
@@ -111,6 +111,7 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def load_input(self, filename):
+        filename = filename.decode('utf-8')
         if os.path.splitext(filename)[1] == ".htk":
             fh = open(filename, "rb")
             spam = fh.read(12)
@@ -129,10 +130,10 @@ class BatchedInput(BaseInputData):
             var = open("data/aps-sps/var.dat").read().split('\n')[:-1]
             var = np.array([float(x) for x in var])
 
-            outfile = "/n/sd7/trung/tmp/tmp.htk"
+            outfile = "tmp.htk"
             call([
-                "/n/sd7/trung/bin/htk/HTKTools/HCopy",
-                "-C", "/n/sd7/trung/config.lmfb.40ch", "-T", "1",
+                self.hparams.hcopy_path,
+                "-C", self.hparams.hcopy_config, "-T", "1",
                 filename, outfile
             ], stdout=PIPE)
             fh = open(outfile, "rb")

@@ -8,13 +8,6 @@ import wave
 from array import array
 import os
 
-FORMAT=pyaudio.paInt16
-CHANNELS=2
-RATE=44100
-CHUNK=1024
-RECORD_SECONDS=15
-FILE_NAME="RECORDING.wav"
-
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -70,7 +63,7 @@ class ModelWrapper:
         self.hparams.input_path = os.path.join("tmp", "input.tmp")
         with open(self.hparams.input_path, "w") as f:
             f.write(wavfile)
-        self.batched_input = self.BatchedInput(self.hparams, self.mode)
+        self.batched_input.reset_iterator(sess)
         with self.graph.as_default():
             while True:
                 try:
@@ -81,9 +74,9 @@ class ModelWrapper:
                         str_decoded = self.batched_input.decode(sample_ids[i])
 
                         # print('Original: %s' % str_original)
-                        print('Decoded:  %s' % "".join(str_decoded))
+                        print(' -> Result:\n\t\t%s' % "".join(str_decoded))
                 except tf.errors.OutOfRangeError:
-                    break
+                    return
 
 def load(Model, BatchedInput, hparams):
     infer_model = ModelWrapper(
@@ -103,48 +96,101 @@ def load(Model, BatchedInput, hparams):
 
     return infer_sess, infer_model, global_step
 
-def record():
+def record(filename):
+    FORMAT = pyaudio.paInt16
+    RATE = 16000
+    CHUNK = 1024
     audio = pyaudio.PyAudio()
-    stream = audio.open(format=FORMAT, channels=CHANNELS,
+    stream = audio.open(format=FORMAT, channels=1,
                         rate=RATE,
                         input=True,
                         frames_per_buffer=CHUNK)
     frames = []
 
-    for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+    count_silent = 0
+    count_voice = 0
+    while True:
         data = stream.read(CHUNK)
         data_chunk = array('h', data)
         vol = max(data_chunk)
         if vol >= 500:
-            print("something said", end='\r')
-            frames.append(data)
+            print("<voice>                 ", end='\r')
+            count_silent = 0
+            count_voice += 1
         else:
-            print("nothing", end='\r')
+            print("<silent>                ", end='\r')
+            count_silent += 1
+
+        if count_silent > 20:
+            if count_voice > 10: break
+            else:
+                frames = []
+                count_silent = 0
+                count_voice = 0
+        else:
+            frames.append(data)
 
     stream.stop_stream()
     stream.close()
     audio.terminate()
     # writing to file
-    wavfile = wave.open(FILE_NAME, 'wb')
-    wavfile.setnchannels(CHANNELS)
+    wavfile = wave.open(filename, 'wb')
+    wavfile.setnchannels(1)
     wavfile.setsampwidth(audio.get_sample_size(FORMAT))
     wavfile.setframerate(RATE)
     wavfile.writeframes(b''.join(frames))  # append frames recorded to file
     wavfile.close()
 
+def play(filename):
+    CHUNK = 1024
+    wf = wave.open(filename, 'rb')
+
+    # create an audio object
+    p = pyaudio.PyAudio()
+
+    # open stream based on the wave object which has been input.
+    stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                    channels=wf.getnchannels(),
+                    rate=wf.getframerate(),
+                    output=True)
+
+    # read data (based on the chunk size)
+    data = wf.readframes(CHUNK)
+
+    # play stream (looping from beginning of file to the end)
+    while data != b'':
+        # writing to the stream is what *actually* plays the sound.
+        stream.write(data)
+        data = wf.readframes(CHUNK)
+
+    # cleanup stuff.
+    stream.close()
+    p.terminate()
+
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)
+    #hparams.hcopy_path = "/n/sd7/trung/bin/htk/HTKTools/HCopy"
+    hparams.hcopy_path = os.path.join("bin", "htk", "bin.win32", "HCopy.exe")
+    #hparams.hcopy_config = os.path.join("/n/sd7/trung/config.lmfb.40ch")
+    hparams.hcopy_config = os.path.join("data", "config.lmfb.40ch")
 
-    os.system('cls')
     hparams.input_path = os.path.join("tmp", "input.tmp")
-    with open(hparams.input_path, "w") as f: f.write("empty")
+    # with open(hparams.input_path, "w") as f: f.write("")
     BatchedInput = utils.get_batched_input_class(hparams)
     Model = utils.get_model_class(hparams)
     sess, model, _ = load(Model, BatchedInput, hparams)
 
-    # infer(hparams)
-    # record()
-    model.infer("test.wav", sess)
+    os.system('cls')
+
+    while True:
+        #if input("Start recording? [Y/n]: ") != 'n':
+        print("Recording...", end="\r")
+        record("test.wav")
+        # infer(hparams)
+        # record()
+        print("Inferring...", end="\r")
+        model.infer("test.wav", sess)
+        # play("test.wav")
 
 
 if __name__ == "__main__":
