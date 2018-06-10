@@ -13,6 +13,7 @@ from tensorflow.python.layers import core as layers_core
 from six.moves import xrange as range
 
 from csp.utils import ops_utils, model_utils
+from tensorflow.contrib.seq2seq import BeamSearchDecoder
 
 # Hyper-parameters
 SAMPLING_TEMPERATURE = 0
@@ -154,7 +155,7 @@ class AttentionModel(BaseModel):
                 sample_ids = tf.argmax(logits, axis=-1)
             else:
                 if self.hparams.beam_width > 0:
-                    decoder = tf.contrib.seq2seq.BeamSearchDecoder(
+                    decoder = CustomBeamSearchDecoder(
                         decoder_cell,
                         lambda ids: decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
                         start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
@@ -311,3 +312,18 @@ class CustomAttention(_BaseAttentionMechanism):
             
             next_state = alignments
             return alignments, next_state
+
+class CustomBeamSearchDecoder(BeamSearchDecoder):
+    def _get_scores(log_probs, sequence_lengths, length_penalty_weight):
+        """Calculates scores for beam search hypotheses.
+        Args:
+          log_probs: The log probabilities with shape
+            `[batch_size, beam_width, vocab_size]`.
+          sequence_lengths: The array of sequence lengths.
+          length_penalty_weight: Float weight to penalize length. Disabled with 0.0.
+        Returns:
+          The scores normalized by the length_penalty.
+        """
+        length_penalty_ = _length_penalty(
+            sequence_lengths=sequence_lengths, penalty_factor=length_penalty_weight)
+        return log_probs / length_penalty_

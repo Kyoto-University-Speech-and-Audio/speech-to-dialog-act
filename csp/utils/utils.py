@@ -112,7 +112,7 @@ def create_hparams(flags):
 
         # Infer
         input_path=argval("input_path") or "/n/sd7/trung/test.txt",
-        hcopy_path=None
+        hcopy_path=None,
         length_penalty_weight=0.0,
     )
 

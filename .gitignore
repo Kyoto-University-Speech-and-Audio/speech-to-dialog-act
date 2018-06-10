@@ -3,3 +3,10 @@ data
 tmp
 **/__pycache__
 .idea
+**/.ipynb_checkpoints
+**/*.swp
+**/*.out
+repos
+bin
+log
+**/*.DS_Store

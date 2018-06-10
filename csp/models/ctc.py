@@ -31,13 +31,6 @@ class CTCModel(BaseModel):
         # generate a SparseTensor required by ctc_loss op.
         self.targets = ops_utils.sparse_tensor(self.target_labels, padding_value=-1)
 
-        # Defining the cell
-        # cells = [tf.contrib.rnn.LSTMCell(num_units) for _ in range(num_layers)]
-        # stack = tf.contrib.rnn.MultiRNNCell(cells)
-
-        # The second output is the last state and we will no use that
-        # outputs, _ = tf.nn.dynamic_rnn(stack, self.inputs, self.input_seq_len, dtype=tf.float32)
-
         cells_fw = [tf.contrib.rnn.LSTMCell(num_units) for _ in range(num_layers)]
         cells_bw = [tf.contrib.rnn.LSTMCell(num_units) for _ in range(num_layers)]
         outputs, _, _ = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(cells_fw,
@@ -86,7 +79,7 @@ class CTCModel(BaseModel):
         return batch_lost, global_step
 
     def eval(self, sess):
-        target_labels, loss, ler, decoded, self.summary = \
+        target_labels, loss, ler, decoded, summary = \
             sess.run([
                 self.target_labels,
                 self.loss,
@@ -94,5 +87,5 @@ class CTCModel(BaseModel):
                 self.dense_decoded,
                 self.summary
             ])
-        return target_labels, loss, decoded
+        return target_labels, loss, decoded, summary
 
