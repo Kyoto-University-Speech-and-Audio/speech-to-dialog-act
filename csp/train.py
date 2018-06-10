@@ -49,7 +49,7 @@ class ModelWrapper:
         return self.model.train(sess)
 
     def save(self, sess, global_step):
-        self.model.saver.save(sess, os.path.join(self.hparams.out_dir, "csp.ckpt"))
+        self.model.saver.save(sess, os.path.join(self.hparams.out_dir, "csp.epoch%d.ckpt" % (global_step * self.hparams.batch_size // self.batched_input.size)))
         tf.logging.info('\n- Saved')
 
     def create_model(self, sess, name):

@@ -2,7 +2,7 @@ import argparse
 import os
 import tensorflow as tf
 import sys
-from .utils import utils
+from .utils import utils, ops_utils
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
@@ -27,6 +27,8 @@ def add_arguments(parser):
     parser.add_argument("--summaries_dir", type=str, default="log")
     parser.add_argument("--out_dir", type=str, default=None,
                         help="Store log/model files.")
+
+    parser.add_argument("--target_path", type=str, default=None)
 
     parser.add_argument('--server', type="bool", const=True, nargs="?", default=False)
 
@@ -80,6 +82,12 @@ def infer(hparams):
         os.path.join(hparams.summaries_dir, "%s_%s" % (hparams.model, hparams.dataset), "log_infer"),
         infer_sess.graph)
 
+    targets = []
+    if FLAGS.target_path:
+        targets = open(FLAGS.target_path).read().split('\n')
+
+    count = 0
+    lers = []
     with infer_model.graph.as_default():
         while True:
             try:
@@ -88,13 +96,24 @@ def infer(hparams):
                     writer.add_summary(summary, global_step)
 
                 for i in range(len(sample_ids)):
-                    # str_original = BatchedInput.decode(target_labels[i])
                     str_decoded = infer_model.batched_input.decode(sample_ids[i])
 
-                    # print('Original: %s' % str_original)
-                    print('Decoded:  %s' % "".join(str_decoded))
+                    if FLAGS.target_path:
+                        print('-- Original: %s' % targets[count])
+
+                    print('   Decoded:  %s' % "".join(str_decoded))
+
+                    if FLAGS.target_path:
+                        ler = ops_utils.levenshtein(list("".join(str_decoded)), list(targets[count])) / len(targets[count])
+                        if ler > 1: ler = 1
+                        print('   LER:      %.3f' % ler)
+                        lers.append(ler)
+
+                    count += 1
             except tf.errors.OutOfRangeError:
                 break
+
+    print("LER: %.3f" % (sum(lers) / count))
 
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)

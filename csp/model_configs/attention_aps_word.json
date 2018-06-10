@@ -6,5 +6,6 @@
     
     "eos_index": 1,
     "sos_index": 2,
-    "beam_width": 0
+    "beam_width": 16,
+    "length_penalty_weight": 0.5
 }

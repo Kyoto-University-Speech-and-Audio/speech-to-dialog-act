@@ -111,8 +111,7 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def load_input(self, filename):
-        filename = filename.decode('utf-8')
-        if os.path.splitext(filename)[1] == ".htk":
+        if os.path.splitext(filename)[1] == b".htk":
             fh = open(filename, "rb")
             spam = fh.read(12)
             nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
@@ -159,11 +158,10 @@ class BatchedInput(BaseInputData):
         filenames = self.input_filenames
         targets = self.input_targets
         
-        if shuffle:
-            bucket = 2000
+        if shuffle and 0:
+            bucket = 10000
             shuffled_filenames = []
             shuffled_targets = []
-            start, end = 0, 0
             for i in range(0, len(filenames) // bucket):
                 start, end = i * bucket, min((i + 1) * bucket, len(filenames))
                 ls = list(zip(filenames[start:end], targets[start:end]))
@@ -173,6 +171,11 @@ class BatchedInput(BaseInputData):
                 shuffled_targets += ts
             filenames = shuffled_filenames
             targets = shuffled_targets
+
+        if shuffle:
+            ls = list(zip(filenames, targets))
+            random.shuffle(ls)
+            filenames, targets = zip(*ls)
 
         filenames = filenames[skip:]
         targets = targets[skip:]

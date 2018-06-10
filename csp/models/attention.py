@@ -15,7 +15,6 @@ from six.moves import xrange as range
 from csp.utils import ops_utils, model_utils
 
 # Hyper-parameters
-LENGTH_PENALTY_WEIGHT = 0.0
 SAMPLING_TEMPERATURE = 0
 
 max_gradient_norm = 5.0
@@ -163,7 +162,7 @@ class AttentionModel(BaseModel):
                         initial_state=decoder_initial_state,
                         beam_width=self.hparams.beam_width,
                         output_layer=self.output_layer,
-                        length_penalty_weight=LENGTH_PENALTY_WEIGHT,
+                        length_penalty_weight=self.hparams.length_penalty_weight,
                         )
                 else:
                     if SAMPLING_TEMPERATURE > 0.0:
