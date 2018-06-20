@@ -3,5 +3,5 @@
     "model": "attention",
     "input_unit": "word",
     
-    "beam_width": 16
+    "beam_width": 0
 }

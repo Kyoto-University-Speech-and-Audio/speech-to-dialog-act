@@ -1,5 +1,6 @@
 import tensorflow as tf
 from ..utils import model_utils
+import os
 
 MAX_GRADIENT_NORM = 5.0
 WARMUP_STEPS = 0
@@ -12,16 +13,26 @@ PS_OPS = [
 ]
 
 class BaseModel(object):
-    def __init__(self, hparams, mode, iterator):
+    def __init__(self):
+        pass
+
+    def __call__(self,
+                 hparams,
+                 mode,
+                 iterator,
+                 **kwargs):
         self.hparams = hparams
         self.mode = mode
         self.train_mode = self.mode == tf.estimator.ModeKeys.TRAIN
         self.eval_mode = self.mode == tf.estimator.ModeKeys.EVAL
         self.infer_mode = self.mode == tf.estimator.ModeKeys.PREDICT
 
-        self.global_step = tf.Variable(0, trainable=True)
+        self.global_step = tf.Variable(0, trainable=False)
 
         self.iterator = iterator
+        # self.batch_size = hparams.batch_size
+
+        self.batch_size = tf.shape(self.input_seq_len)[0]
         if self.train_mode:
             self.learning_rate = tf.constant(hparams.learning_rate)
             self.learning_rate = self._get_learning_rate_warmup(hparams)
@@ -34,10 +45,13 @@ class BaseModel(object):
             elif hparams.optimizer == "momentum":
                 opt = tf.train.MomentumOptimizer(self.learning_rate,
                                                             0.9).minimize(self.loss)
-            self.batch_size = tf.shape(self.input_seq_len)[0]
+
             self.loss = self._build_graph()
 
-            params = tf.trainable_variables()
+            if "trainable_scope" in kwargs:
+                params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=kwargs['trainable_scope'])
+            else: params = tf.trainable_variables()
+
             gradients = tf.gradients(
                 self.loss,
                 params,
@@ -54,21 +68,29 @@ class BaseModel(object):
                 tf.summary.scalar("learning_rate", self.learning_rate),
             ] + grad_norm_summary)
 
-            print("# Trainable variables")
-            for param in params:
-                print("  %s, %s, %s" % (param.name, str(param.get_shape()),
-                                                  param.op.device))
         elif self.eval_mode:
-            self.batch_size = tf.shape(self.input_seq_len)[0]
+            # self.batch_size = tf.shape(self.input_seq_len)[0]
             self.loss = self._build_graph()
             self.summary = tf.summary.merge([
                 tf.summary.scalar('eval_loss', self.loss),
             ])
         elif self.infer_mode:
-            self.batch_size = tf.shape(self.input_seq_len)[0]
+            # self.batch_size = tf.shape(self.input_seq_len)[0]
             self.target_labels, self.target_seq_len = None, None
             self._build_graph()
-            # self.summary = self._get_attention_summary(hparams)
+            # self.summary = self._get_attention_summary()
+
+        print("# Variables")
+        for param in tf.global_variables():
+            print("  %s, %s, %s" % (param.name, str(param.get_shape()),
+                                    param.op.device))
+
+        if self.train_mode:
+            print("# Trainable variables")
+            for param in params:
+                print("  %s, %s, %s" % (param.name, str(param.get_shape()),
+                                        param.op.device))
+
         self.saver = tf.train.Saver(tf.global_variables())
 
     @property
@@ -79,10 +101,10 @@ class BaseModel(object):
     def iterator(self, value):
         self._iterator = value
         if self.eval_mode or self.train_mode:
-            ((self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
+            ((self.input_filenames, self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
                 self._iterator.get_next()
         else:
-            self.inputs, self.input_seq_len = self._iterator.get_next()
+            self.input_filenames, self.inputs, self.input_seq_len = self._iterator.get_next()
 
     def get_available_gpus(self):
         from tensorflow.python.client import device_lib
@@ -169,3 +191,38 @@ class BaseModel(object):
                 (self.global_step - start_decay_step),
                 decay_steps, decay_factor, staircase=True),
             name="learning_rate_decay_cond")
+
+    def _build_graph(self):
+        pass
+
+
+class BaseModelWrapper():
+    def __init__(self):
+        pass
+
+    def load_model(self, sess, name):
+        if name:
+            ckpt = os.path.join(self.hparams.out_dir, "csp.%s.ckpt" % name)
+        else:
+            ckpt = tf.train.latest_checkpoint(self.hparams.out_dir)
+        if ckpt:
+            # for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
+            #    saver_variables.remove(var)
+            var_map = {
+                #"decoder/decoder_emb_layer/kernel": "decoder/dense/kernel",
+                #"decoder/decoder_emb_layer/bias": "decoder/dense/bias",
+            }
+
+            if var_map:
+                saver_variables = tf.global_variables()
+                var_list = {var.op.name: var for var in saver_variables}
+                for it in var_map:
+                    var_list[var_map[it]] = var_list[it]
+                    del var_list[it]
+                saver = tf.train.Saver(var_list=var_list)
+                saver.restore(sess, ckpt)
+            else:
+                self.model.saver.restore(sess, ckpt)
+            sess.run(tf.tables_initializer())
+            global_step = self.model.global_step.eval(session=sess)
+            return self.model, global_step

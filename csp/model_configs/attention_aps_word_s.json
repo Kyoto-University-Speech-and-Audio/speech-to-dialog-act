@@ -1,5 +1,5 @@
 {
-  "name": "attention_aps_word",
+  "name": "attention_aps_word_s",
   "model": "attention",
   "dataset": "aps",
   "input_unit": "word",
@@ -9,11 +9,12 @@
 
   "eos_index": 1,
   "sos_index": 2,
-  "encoder_type": "bilstm",
-  "encoder_num_units": 640,
-  "decoder_num_units": 640,
-  "attention_num_units": 640,
-  "attention_layer_size": 640,
+  "encoder_type": "lstm",
+  "encoder_num_units": 512,
+  "decoder_num_units": 256,
+  "attention_num_units": 128,
+  "attention_layer_size": 256,
+  "attention_energy_scale": true,
 
   "beam_width": 0,
   "length_penalty_weight": 0.5

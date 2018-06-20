@@ -2,6 +2,8 @@ import argparse
 import os
 import tensorflow as tf
 import sys
+
+from .models.base import BaseModelWrapper
 from .utils import utils, ops_utils
 
 sys.path.insert(0, os.path.abspath('.'))
@@ -19,7 +21,8 @@ def add_arguments(parser):
 
     parser.add_argument("--num_buckets", type=int, default=5,
                         help="Put data into similar-length buckets.")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size.")
+    parser.add_argument('--load', type=str, default=None)
+    parser.add_argument("--batch_size", type=int, default=20, help="Batch size.")
 
     parser.add_argument(
         "--num_train_steps", type=int, default=12000, help="Num steps to train.")
@@ -33,7 +36,7 @@ def add_arguments(parser):
     parser.add_argument('--server', type="bool", const=True, nargs="?", default=False)
 
 
-class ModelWrapper:
+class ModelWrapper(BaseModelWrapper):
     def __init__(self, hparams, mode, BatchedInput, Model):
         self.graph = tf.Graph()
         self.hparams = hparams
@@ -47,14 +50,6 @@ class ModelWrapper:
                 iterator=self.iterator
             )
 
-    def load_model(self, sess, name):
-        latest_ckpt = tf.train.latest_checkpoint(self.hparams.out_dir)
-        if latest_ckpt:
-            self.model.saver.restore(sess, latest_ckpt)
-            sess.run(tf.tables_initializer())
-            global_step = self.model.global_step.eval(session=sess)
-            return global_step
-
 def load(Model, BatchedInput, hparams):
     infer_model = ModelWrapper(
         hparams,
@@ -65,8 +60,8 @@ def load(Model, BatchedInput, hparams):
     infer_sess = tf.Session(graph=infer_model.graph)
 
     with infer_model.graph.as_default():
-        global_step = infer_model.load_model(
-            infer_sess, "infer"
+        _, global_step = infer_model.load_model(
+            infer_sess, FLAGS.load
         )
 
         infer_model.batched_input.reset_iterator(infer_sess)
@@ -104,7 +99,9 @@ def infer(hparams):
                     print('   Decoded:  %s' % "".join(str_decoded))
 
                     if FLAGS.target_path:
-                        ler = ops_utils.levenshtein(list("".join(str_decoded)), list(targets[count])) / len(targets[count])
+                        sdecoded = "".join(str_decoded).replace('<sp>', '')
+                        starget = targets[count].replace(' ', '')
+                        ler = ops_utils.levenshtein(list(sdecoded), list(starget)) / len(starget)
                         if ler > 1: ler = 1
                         print('   LER:      %.3f' % ler)
                         lers.append(ler)
@@ -113,10 +110,14 @@ def infer(hparams):
             except tf.errors.OutOfRangeError:
                 break
 
-    print("LER: %.3f" % (sum(lers) / count))
+    print("LER: %2.2f" % (sum(lers) / count * 100))
 
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)
+    hparams.hcopy_path = "/n/sd7/trung/bin/htk/HTKTools/HCopy"
+    # hparams.hcopy_path = os.path.join("bin", "htk", "bin.win32", "HCopy.exe")
+    hparams.hcopy_config = os.path.join("/n/sd7/trung/config.lmfb.40ch")
+    # hparams.hcopy_config = os.path.join("data", "config.lmfb.40ch")
 
     print(FLAGS.server)
     if FLAGS.server:
