@@ -9,6 +9,7 @@ import time
 from .utils import utils
 from tqdm import tqdm
 from .eval import eval
+from .models.trainers.multi_gpu_trainer import MultiGPUTrainer
 
 from tensorflow.python import debug as tf_debug
 
@@ -36,142 +37,109 @@ def add_arguments(parser):
                         help="Random seed (>0, set a specific seed).")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size.")
 
-class ModelWrapper:
-    def __init__(self, hparams, mode, BatchedInput, Model):
-        self.graph = tf.Graph()
-        self.hparams = hparams
-        with self.graph.as_default():
-            self.batched_input = BatchedInput(hparams, mode)
-            self.batched_input.init_dataset()
-            hparams.num_classes = self.batched_input.num_classes
-            self.iterator = self.batched_input.iterator
-            self.model = Model(
-                hparams,
-                mode=mode,
-                iterator=self.iterator
-            )
-            new_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='decoder/correction')
-            self.init_new_vars = tf.initialize_variables(new_vars)
+def load_model(sess, hparams):
+    sess.run(tf.global_variables_initializer())
+    if FLAGS.reset: return
+    if FLAGS.load:
+        ckpt = os.path.join(hparams.out_dir, "csp.%s.ckpt" % FLAGS.load)
+    else:
+        ckpt = tf.train.latest_checkpoint(hparams.out_dir)
 
-    def train(self, sess):
-        return self.model.train(sess)
-
-    def save(self, sess, global_step):
-        path = os.path.join(
-            self.hparams.out_dir,
-            "csp.epoch%d.ckpt" % (global_step * self.hparams.batch_size // self.batched_input.size))
-        self.model.saver.save(sess, path)
-        tf.logging.info('\n- Saved to ' + path)
-
-    def create_model(self, sess, name):
-        sess.run(tf.global_variables_initializer())
-        sess.run(tf.tables_initializer())
-        global_step = self.model.global_step.eval(session=sess)
-        return self.model, global_step
-
-    def load_model(self, sess, name):
-        sess.run(tf.global_variables_initializer())
-        if self.init_new_vars:
-            sess.run(self.init_new_vars)
-
-        if FLAGS.load:
-            ckpt = os.path.join(self.hparams.out_dir, "csp.%s.ckpt" % FLAGS.load)
-        else:
-            ckpt = tf.train.latest_checkpoint(self.hparams.out_dir)
-
-        if ckpt:
-            saver_variables = tf.global_variables()
-            if FLAGS.load_ignore_scope:
-                for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
-                    saver_variables.remove(var)
-
-            var_map = {
-                #"decoder/decoder_emb_layer/kernel": "decoder/dense/kernel",
-                #"decoder/decoder_emb_layer/bias": "decoder/dense/bias",
-                #"decoder/decoder_emb_layer/bias/Adam": "decoder/dense/bias/Adam",
-                #"decoder/decoder_emb_layer/bias/Adam_1": "decoder/dense/bias/Adam_1",
-                #"decoder/decoder_emb_layer/kernel/Adam": "decoder/dense/kernel/Adam",
-                #"decoder/decoder_emb_layer/kernel/Adam_1": "decoder/dense/kernel/Adam_1",
-            }
-            var_list = {var.op.name: var for var in saver_variables}
-
-            for it in var_map:
-                var_list[var_map[it]] = var_list[it]
-                del var_list[it]
-
-            saver = tf.train.Saver(var_list=var_list)
-            saver.restore(sess, ckpt)
-
-            sess.run(tf.tables_initializer())
-            global_step = self.model.global_step.eval(session=sess)
-            return self.model, global_step
-        else: return self.create_model(sess, name)
+    if ckpt:
+        saver = tf.train.Saver()
+        saver.restore(sess, ckpt)
+    else:
+        pass
 
 def train(Model, BatchedInput, hparams):
-    train_model = ModelWrapper(
-        hparams,
-        tf.estimator.ModeKeys.TRAIN,
-        BatchedInput, Model
-    )
+    graph = tf.Graph()
+    mode = tf.estimator.ModeKeys.TRAIN
+    with graph.as_default():
+        batched_input = BatchedInput(hparams, mode)
+        batched_input.init_dataset()
+        hparams.num_classes = batched_input.num_classes
 
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    config.allow_soft_placement = True
-    train_sess = tf.Session(graph=train_model.graph, config=config)
-    if FLAGS.debug:
-        train_sess = tf_debug.LocalCLIDebugWrapperSession(train_sess)
-    
-    with train_model.graph.as_default():
-        loaded_train_model, global_step = train_model.create_model(train_sess, "train") \
-            if FLAGS.reset else train_model.load_model(train_sess, "train")
-        data_size = train_model.batched_input.size
-        skip = global_step * hparams.batch_size % data_size
-        train_model.batched_input.reset_iterator(train_sess, skip=skip, shuffle=True)
+        model_fn = lambda: Model(
+            hparams, mode,
+            batched_input.iterator
+        )
 
-    train_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "log_train"), train_sess.graph)
+        new_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='decoder/correction')
+        init_new_vars = tf.initialize_variables(new_vars)
 
-    last_save_step = global_step
-    last_eval_step = global_step
-    epoch_batch_count = data_size // hparams.batch_size
-    
-    def get_pbar(initial=0):
-        bar_format = "{desc}{percentage:3.0f}%|{bar}|{n_fmt}/{total_fmt}{postfix}"
-        return tqdm(total=epoch_batch_count,
-                bar_format=bar_format, ncols=100,
-                initial=initial)
+        trainer = MultiGPUTrainer(hparams, mode)
+        trainer(model_fn, batched_input)
 
-    pbar = get_pbar((global_step * hparams.batch_size % data_size) // hparams.batch_size)
-    pbar.set_description('Epoch %i' % (global_step * hparams.batch_size // train_model.batched_input.size + 1))
-    while True:
-        train_cost = 0
-        try:
-            batch_cost, global_step = loaded_train_model.train(train_sess)
-            # hparams.epoch_step += 1
-            if global_step * hparams.batch_size % data_size < hparams.batch_size:
-                pbar = get_pbar()
-        except tf.errors.OutOfRangeError:
-            # hparams.epoch_step = 0
-            # print("Epoch completed")
-            # pbar = get_pbar()
-            train_model.batched_input.reset_iterator(train_sess, shuffle=True)
-            continue
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        config.allow_soft_placement = True
 
-        train_cost += batch_cost * hparams.batch_size
-        train_writer.add_summary(train_model.model.summary, global_step)
+        sess = tf.Session(graph=graph, config=config)
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.tables_initializer())
+        load_model(sess, hparams)
 
-        train_cost /= hparams.batch_size
+        trainer.processed_inputs_count = sess.run(trainer._processed_inputs_count)
 
-        pbar.update(1)
-        pbar.set_postfix(cost="%.3f" % (train_cost))
+        if FLAGS.debug:
+            sess = tf_debug.LocalCLIDebugWrapperSession(sess)
 
-        if global_step - last_save_step >= FLAGS.save_steps:
-            train_model.save(train_sess, global_step)
-            last_save_step = global_step
+        data_size = batched_input.size
+        skip = trainer.processed_inputs_count % data_size
+        batched_input.reset_iterator(
+            sess, skip=skip,
+            shuffle=trainer.epoch > 5)
 
-        if global_step - last_eval_step >= 3000:
-            hparams.beam_width = 0
-            eval(hparams, output=False)
-            last_eval_step = global_step
+        train_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "log_train"), sess.graph)
+
+        last_save_step = trainer.global_step
+        last_eval_step = trainer.global_step - 3000
+        epoch_batch_count = data_size // hparams.batch_size // trainer.num_gpus
+
+        def get_pbar(initial=0):
+            bar_format = "{desc}{percentage:3.0f}%|{bar}|{n_fmt}/{total_fmt}{postfix}"
+            return tqdm(total=epoch_batch_count,
+                    bar_format=bar_format, ncols=100,
+                    initial=initial)
+
+        pbar = get_pbar(trainer.epoch_progress)
+        pbar.set_description('Epoch %i' % trainer.epoch)
+        while True:
+            train_cost = 0
+            try:
+                loss, summary = trainer.train(sess)
+                # hparams.epoch_step += 1
+                if trainer.epoch_progress == 0:
+                    pbar = get_pbar()
+            except tf.errors.OutOfRangeError:
+                # hparams.epoch_step = 0
+                # print("Epoch completed")
+                # pbar = get_pbar()
+                batched_input.reset_iterator(sess, shuffle=trainer.epoch > 5)
+                continue
+
+            train_cost += loss * hparams.batch_size
+            train_writer.add_summary(summary, trainer.epoch_exact)
+
+            train_cost /= hparams.batch_size
+
+            pbar.update(1)
+            pbar.set_postfix(cost="%.3f" % (train_cost))
+
+            if trainer.global_step - last_save_step >= FLAGS.save_steps:
+                path = os.path.join(
+                    hparams.out_dir,
+                    "csp.epoch%d.ckpt" % (trainer.epoch))
+                saver = tf.train.Saver()
+                saver.save(sess, path)
+                print(trainer.processed_inputs_count)
+                tf.logging.info('\n- Saved to ' + path)
+                last_save_step = trainer.global_step
+
+            if trainer.global_step - last_eval_step >= 3000:
+                hparams.beam_width = 0
+                #eval(hparams, FLAGS)
+                last_eval_step = trainer.global_step
 
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)

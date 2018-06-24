@@ -4,7 +4,7 @@ from tensorflow.python.layers import core as layers_core
 
 class LocationBasedAttention(_BaseAttentionMechanism):
     def __init__(self, num_units,
-                 memory, memory_sequence_length,
+                 memory, memory_sequence_length, context,
                  sharpening=False, smoothing=True,
                  use_location_based_attention=True,
                  location_conv_size=(10, 201),
@@ -38,6 +38,7 @@ class LocationBasedAttention(_BaseAttentionMechanism):
         self.location_conv_size = location_conv_size
         self.use_location_based_attention = use_location_based_attention
         self._scale = scale
+        self._context = context
 
     def __call__(self, query, state):
         with tf.variable_scope(None, "custom_attention", [query]):

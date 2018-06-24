@@ -3,10 +3,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+#from .base_multi_gpus import MultiGPUBaseModel as BaseModel
 from .base import BaseModel
-import scipy.misc
 import matplotlib as mpl
-
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -31,11 +30,13 @@ class AttentionModel(BaseModel):
     def __init__(self,
                  attention_fn=None,
                  beam_search_decoder_cls=BeamSearchDecoder,
-                 train_decode_fn=None):
+                 train_decode_fn=None,
+                 eval_decode_fn=None):
         super().__init__()
         self._attention_fn = attention_fn or self._attention_fn_default
         self._beam_search_decoder_cls = beam_search_decoder_cls
         self._train_decode_fn = train_decode_fn or self._train_decode_fn_default
+        self._eval_decode_fn = eval_decode_fn or self._eval_decode_fn_default
 
     def __call__(self, hparams, mode, iterator, **kwargs):
         BaseModel.__call__(self, hparams, mode, iterator, **kwargs)
@@ -96,23 +97,25 @@ class AttentionModel(BaseModel):
             return tf.reduce_mean(cross_ent * target_weights)
 
     def _build_encoder(self):
-        if self.hparams.encoder_type == 'bilstm':
-            cells_fw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
-                        range(self.hparams.num_encoder_layers)]
-            cells_bw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
-                        range(self.hparams.num_encoder_layers)]
-            outputs, output_states_fw, output_states_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
-                cells_fw, cells_bw,
-                self.inputs, sequence_length=self.input_seq_len,
-                dtype=tf.float32)
-            return outputs, tf.concat([output_states_fw, output_states_bw], -1)
-        elif self.hparams.encoder_type == 'lstm':
-            cells = [model_utils.single_cell("lstm", self.hparams.encoder_num_units, self.mode) for _ in
-                     range(self.hparams.num_encoder_layers)]
-            cell = tf.nn.rnn_cell.MultiRNNCell(cells)
-            outputs, state = tf.nn.dynamic_rnn(cell, self.inputs, sequence_length=self.input_seq_len, dtype=tf.float32)
-            print(state)
-            return outputs, state
+        if True:
+        #with tf.variable_scope('encoder') as encoder_scope:
+            if self.hparams.encoder_type == 'bilstm':
+                cells_fw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
+                            range(self.hparams.num_encoder_layers)]
+                cells_bw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
+                            range(self.hparams.num_encoder_layers)]
+                outputs, output_states_fw, output_states_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
+                    cells_fw, cells_bw,
+                    self.inputs, sequence_length=self.input_seq_len,
+                    dtype=tf.float32)
+                return outputs, tf.concat([output_states_fw, output_states_bw], -1)
+            elif self.hparams.encoder_type == 'lstm':
+                cells = [model_utils.single_cell("lstm", self.hparams.encoder_num_units, self.mode) for _ in
+                         range(self.hparams.num_encoder_layers)]
+                cell = tf.nn.rnn_cell.MultiRNNCell(cells)
+                outputs, state = tf.nn.dynamic_rnn(cell, self.inputs, sequence_length=self.input_seq_len, dtype=tf.float32)
+                print(state)
+                return outputs, state
 
 
     def _train_decode_fn_default(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope):
@@ -137,6 +140,75 @@ class AttentionModel(BaseModel):
 
         return outputs, final_state, final_output_lengths
 
+    def _eval_decode_fn_default(self, encoder_outputs, decoder_cell, scope, context=None):
+        if self.hparams.beam_width > 0:
+            encoder_outputs = tf.contrib.seq2seq.tile_batch(
+                encoder_outputs, multiplier=self.hparams.beam_width)
+            self.input_seq_len = tf.contrib.seq2seq.tile_batch(
+                self.input_seq_len, multiplier=self.hparams.beam_width)
+            batch_size = self.batch_size * self.hparams.beam_width
+        else:
+            batch_size = self.batch_size
+
+        attention_mechanism = self._attention_fn(encoder_outputs)
+
+        cell = tf.contrib.seq2seq.AttentionWrapper(
+            decoder_cell, attention_mechanism,
+            attention_layer_size=self.hparams.attention_layer_size,
+            alignment_history=not self.train_mode and self.hparams.beam_width == 0,
+            output_attention=True
+        )
+
+        decoder_initial_state = cell.zero_state(batch_size, dtype=tf.float32)
+        print("batch_size", batch_size)
+
+        if context is not None:
+            emb_func = lambda ids: tf.concat([self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)), tf.tile(tf.expand_dims(context, axis=1), [1, tf.shape(ids)[1], 1])], axis=-1)
+        else:
+            emb_func = lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes))
+
+        if self.hparams.beam_width > 0:
+            decoder = self._beam_search_decoder_cls(
+                cell,
+                emb_func,
+                start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
+                end_token=self.hparams.eos_index,
+                initial_state=decoder_initial_state,
+                beam_width=self.hparams.beam_width,
+                output_layer=self.output_layer,
+                length_penalty_weight=self.hparams.length_penalty_weight,
+            )
+        else:
+            if SAMPLING_TEMPERATURE > 0.0:
+                helper = tf.contrib.seq2seq.SampleEmbeddingHelper(
+                    lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
+                    start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
+                    end_token=self.hparams.eos_index,
+                    softmax_temperature=SAMPLING_TEMPERATURE,
+                    seed=1001
+                )
+            else:
+                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+                    lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
+                    start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
+                    end_token=self.hparams.eos_index
+                )
+
+            decoder = tf.contrib.seq2seq.BasicDecoder(
+                cell,
+                helper,
+                decoder_initial_state,
+                output_layer=self.output_layer
+            )
+
+        outputs, final_context_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(
+            decoder,
+            swap_memory=True,
+            maximum_iterations=100,
+            scope=scope)
+
+        return outputs, final_context_state, final_sequence_lengths
+
     def _attention_fn_default(self, encoder_outputs):
         return LocationBasedAttention(
             self.hparams.attention_num_units,
@@ -145,25 +217,17 @@ class AttentionModel(BaseModel):
             scale=self.hparams.attention_energy_scale
         )
 
+    def _get_decoder_cell(self):
+        return model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode)
+
     def _build_decoder(self, encoder_outputs, encoder_final_state):
         with tf.variable_scope('decoder') as decoder_scope:
-            decoder_cell = model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode)
-
             self.embedding_decoder = tf.diag(tf.ones(self.num_classes))
-
-            if not self.train_mode and self.hparams.beam_width > 0:
-                encoder_outputs = tf.contrib.seq2seq.tile_batch(
-                    encoder_outputs, multiplier=self.hparams.beam_width)
-                self.input_seq_len = tf.contrib.seq2seq.tile_batch(
-                    self.input_seq_len, multiplier=self.hparams.beam_width)
-                batch_size = self.batch_size * self.hparams.beam_width
-            else:
-                batch_size = self.batch_size
 
             # decoder_initial_state = decoder_cell.zero_state(self.hparams.batch_size, dtype=tf.float32)\
             #    .clone(cell_state=encoder_final_state)
             # decoder_initial_state = encoder_final_state
-
+            decoder_cell = self._get_decoder_cell()
             self.decoder_emb_layer = tf.layers.Dense(self.hparams.decoder_num_units, name="decoder_emb_layer")
 
             if self.train_mode:
@@ -181,55 +245,9 @@ class AttentionModel(BaseModel):
                 logits = self.output_layer(outputs.rnn_output)
                 sample_ids = tf.argmax(logits, axis=-1)
             else:
-                attention_mechanism = self._attention_fn(encoder_outputs)
-
-                decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
-                    decoder_cell, attention_mechanism,
-                    attention_layer_size=self.hparams.attention_layer_size,
-                    alignment_history=not self.train_mode and self.hparams.beam_width == 0,
-                    output_attention=True
-                )
-
-                decoder_initial_state = decoder_cell.zero_state(self.batch_size, dtype=tf.float32)
-
-                if self.hparams.beam_width > 0:
-                    decoder = self._beam_search_decoder_cls(
-                        decoder_cell,
-                        lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
-                        start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
-                        end_token=self.hparams.eos_index,
-                        initial_state=decoder_initial_state,
-                        beam_width=self.hparams.beam_width,
-                        output_layer=self.output_layer,
-                        length_penalty_weight=self.hparams.length_penalty_weight,
-                    )
-                else:
-                    if SAMPLING_TEMPERATURE > 0.0:
-                        helper = tf.contrib.seq2seq.SampleEmbeddingHelper(
-                            lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
-                            start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
-                            end_token=self.hparams.eos_index,
-                            softmax_temperature=SAMPLING_TEMPERATURE,
-                            seed=1001
-                        )
-                    else:
-                        helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                            lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
-                            start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
-                            end_token=self.hparams.eos_index
-                        )
-
-                    decoder = tf.contrib.seq2seq.BasicDecoder(
-                        decoder_cell,
-                        helper,
-                        decoder_initial_state,
-                        output_layer=self.output_layer
-                    )
-
-                outputs, final_context_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(
-                    decoder,
-                    swap_memory=True,
-                    maximum_iterations=100,
+                outputs, final_context_state, final_sequence_lengths = self._eval_decode_fn(
+                    encoder_outputs,
+                    decoder_cell,
                     scope=decoder_scope)
 
                 if self.hparams.beam_width > 0:
@@ -242,13 +260,15 @@ class AttentionModel(BaseModel):
         return logits, sample_ids, final_context_state
 
     def train(self, sess):
+        run_options = tf.RunOptions(report_tensor_allocations_upon_oom=True)
         _, loss, self.summary, sample_id, global_step = sess.run([
             self.update,
             self.loss,
             self.train_summary,
             self.sample_id,
             self.global_step
-        ])
+        ], options=run_options)
+        print("hello")
         return loss, global_step
 
     def eval(self, sess):
@@ -261,18 +281,19 @@ class AttentionModel(BaseModel):
             self.summary, self.attention_images
         ])
 
-        for i in range(len(input_filenames)):
-            id = os.path.basename(input_filenames[i].decode('utf-8')).split('.')[0]
-            img = (1 - images[i]) * 255
-            target_seq_len = np.where(sample_ids[i] == 1)[0][0] if len(np.where(sample_ids[i] == 1)[0]) > 0 else -1
-            img = img[:target_seq_len, :input_seq_len[i]]
-            fig = plt.figure(figsize=(20, 2))
-            ax = fig.add_subplot(111)
-            ax.imshow(img, aspect="auto")
-            ax.set_title(id)
-            ax.set_yticks(np.arange(0, target_seq_len, 5))
-            fig.savefig(os.path.join(self.hparams.summaries_dir, "alignments", id + ".png"))
-            plt.close()
+        if images is not None:
+            for i in range(len(input_filenames)):
+                id = os.path.basename(input_filenames[i].decode('utf-8')).split('.')[0]
+                img = (1 - images[i]) * 255
+                target_seq_len = np.where(sample_ids[i] == 1)[0][0] if len(np.where(sample_ids[i] == 1)[0]) > 0 else -1
+                img = img[:target_seq_len, :input_seq_len[i]]
+                fig = plt.figure(figsize=(20, 2))
+                ax = fig.add_subplot(111)
+                ax.imshow(img, aspect="auto")
+                ax.set_title(id)
+                ax.set_yticks(np.arange(0, target_seq_len, 5))
+                fig.savefig(os.path.join(self.hparams.summaries_dir, "alignments", id + ".png"))
+                plt.close()
 
         return input_filenames, target_labels[:, 1:-1], loss, sample_ids, summary
 
@@ -284,6 +305,7 @@ class AttentionModel(BaseModel):
         return sample_ids, summary
 
     def _get_attention_summary(self):
+        self.attention_images = tf.no_op()
         if self.hparams.beam_width > 0: return None
         attention_images = self.final_context_state.alignment_history.stack()  # max_len * batch_size * T
         attention_images = tf.transpose(attention_images, [1, 0, 2])

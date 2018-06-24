@@ -7,9 +7,11 @@
   "train_data": "data/aps-sps/train/word_sort_xlen.txt",
   "eval_data": "data/aps-sps/test/word_targets.txt",
 
+  "batch_size": 32,
+
   "eos_index": 1,
   "sos_index": 2,
-  "encoder_type": "lstm",
+  "encoder_type": "bilstm",
   "encoder_num_units": 512,
   "decoder_num_units": 256,
   "attention_num_units": 128,

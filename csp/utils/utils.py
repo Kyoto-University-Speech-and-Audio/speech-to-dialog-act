@@ -14,6 +14,8 @@ def get_batched_input_class(hparams):
         from ..input_data.aps import BatchedInput
     elif hparams.dataset == 'erato':
         from ..input_data.erato import BatchedInput
+    elif hparams.dataset == 'erato_context':
+        from ..input_data.erato_context import BatchedInput
 
     return BatchedInput
 
@@ -35,10 +37,22 @@ def get_model_class(hparams):
     elif hparams.model == 'attention_correction':
         from ..models.attention_correction import AttentionModel
         return AttentionModel()
+    elif hparams.model == 'attention_context':
+        from ..models.attention_context import AttentionModel
+        return AttentionModel()
     elif hparams.model == 'ctc-attention':
         from ..models.ctc_attention import CTCAttentionModel as Model
 
     return Model
+
+
+def get_optimizer(hparams, learning_rate):
+    if hparams.optimizer == "sgd":
+        return tf.train.GradientDescentOptimizer(learning_rate)
+    elif hparams.optimizer == "adam":
+        return tf.train.AdamOptimizer(learning_rate)
+    elif hparams.optimizer == "momentum":
+        return tf.train.MomentumOptimizer(learning_rate, 0.9)
 
 def get_batched_dataset(dataset, batch_size, coef_count, mode, padding_values=0):
     dataset = dataset.padded_batch(
@@ -47,10 +61,10 @@ def get_batched_dataset(dataset, batch_size, coef_count, mode, padding_values=0)
                        ([None], [])),
         padding_values=(('', 0.0, 0), (padding_values, 0))
     )
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        dataset = dataset.filter(lambda x: tf.equal(tf.shape(x[0]), batch_size))
-    else:
-        dataset = dataset.filter(lambda x, y: tf.equal(tf.shape(x[0])[0], batch_size))
+    #if mode == tf.estimator.ModeKeys.PREDICT:
+    #    dataset = dataset.filter(lambda x: tf.equal(tf.shape(x[0]), batch_size))
+    #else:
+    #    dataset = dataset.filter(lambda x, y: tf.equal(tf.shape(x[0])[0], batch_size))
     return dataset
 
 def get_batched_dataset_bucket(dataset, batch_size, coef_count, num_buckets, mode, padding_values=0):

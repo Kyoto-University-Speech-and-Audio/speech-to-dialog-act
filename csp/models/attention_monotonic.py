@@ -3,9 +3,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-
-from six.moves import xrange as range
-
 from .attention import AttentionModel as BaseAttentionModel
 
 """Example soft monotonic alignment decoder implementation.
@@ -17,10 +14,7 @@ directly in place of tf.nn.seq2seq.attention_decoder.  This implementation
 attempts to deviate as little as possible from tf.nn.seq2seq.attention_decoder,
 in order to facilitate comparison between the two decoders.
 """
-import numpy as np
 import tensorflow as tf
-from tensorflow.python.util.nest import flatten
-from tensorflow.python.util.nest import is_sequence
 
 
 class LuongMonotonicAttentionModel(BaseAttentionModel):
@@ -47,7 +41,7 @@ class BahdanauMonotonicAttentionModel(BaseAttentionModel):
             self.hparams.decoder_num_units,
             encoder_outputs,
             memory_sequence_length=self.input_seq_len,
-            score_bias_init=-4.0,
+            score_bias_init=-3.0,
             sigmoid_noise=1,
             mode='hard'
         )

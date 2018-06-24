@@ -19,6 +19,7 @@ class BaseInputData():
             self.data_filename = hparams.input_path
 
     def load_wav(self, filename):
+        print(filename)
         mean = open("data/aps-sps/mean.dat").read().split('\n')[:-1]
         mean = np.array([float(x) for x in mean])
         var = open("data/aps-sps/var.dat").read().split('\n')[:-1]
@@ -32,6 +33,7 @@ class BaseInputData():
         ], stdout=PIPE)
         fh = open(outfile, "rb")
         spam = fh.read(12)
+        # print("spam", spam)
         nSamples, sampPeriod, sampSize, parmKind = unpack(">IIHH", spam)
         veclen = int(sampSize / 4)
         fh.seek(12, 0)
@@ -58,8 +60,14 @@ class BaseInputData():
         fh.close()
         return dat
 
+    def load_npy(self, filename):
+        return np.load(filename.decode('utf-8')).astype(np.float32)
+
     def load_input(self, filename):
+        # print(filename)
         if os.path.splitext(filename)[1] == b".htk":
             return self.load_htk(filename)
-        else:
+        elif os.path.splitext(filename)[1] == b".wav":
             return self.load_wav(filename)
+        elif os.path.splitext(filename)[1] == b".npy":
+            return self.load_npy(filename)
