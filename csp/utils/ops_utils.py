@@ -36,3 +36,15 @@ def levenshtein(s1, s2):
             current_row.append(min(insertions, deletions, substitutions))
         previous_row = current_row
     return previous_row[-1]
+
+def calculate_ler(target, result, decode_fn):
+    str_original = decode_fn(target)
+    str_decoded = decode_fn(result)
+    str_original = list(filter(lambda it: it != '<sp>', str_original))
+    str_decoded = list(filter(lambda it: it != '<sp>', str_decoded))
+    if len(str_original) != 0:
+        # ler = ops_utils.levenshtein(''.join(str_original), ''.join(str_decoded)) / len(''.join(str_original))
+        # ler = ops_utils.levenshtein(target_labels[i], decoded[i]) / len(target_labels[i])
+        ler = levenshtein(str_original, str_decoded) / len(str_original)
+        return min(1.0, ler), str_original, str_decoded
+    else: return (0 if len(str_decoded) == 0 else 1), str_original, str_decoded

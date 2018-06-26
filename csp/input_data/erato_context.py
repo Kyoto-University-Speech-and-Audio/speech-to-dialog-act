@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from .base import BaseInputData
 from ..utils import utils
-from ..utils import wav_utils
+
 
 DCT_COEFFICIENT_COUNT = 120
 
@@ -68,23 +68,6 @@ class BatchedInput(BaseInputData):
 
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
-    def init_from_wav_files(self, wav_filenames):
-        src_dataset = tf.data.Dataset.from_tensor_slices(wav_filenames)
-        src_dataset = wav_utils.wav_to_features(src_dataset, self.hparams, 40)
-        src_dataset = src_dataset.map(lambda feat: (feat, tf.shape(feat)[0]))
-
-        self.batched_dataset = utils.get_batched_dataset(
-            src_dataset,
-            self.hparams.batch_size,
-            DCT_COEFFICIENT_COUNT,
-            self.hparams.num_buckets, self.mode
-        )
-
-        self.iterator = self.batched_dataset.make_initializable_iterator()
-
-    def extract_target_features(self, str):
-        return [[int(x) for x in str.decode('utf-8').split(' ')]]
-
     def reset_iterator(self, sess, skip=0, shuffle=False):
         filenames = self.input_filenames
         targets = self.input_targets
@@ -118,18 +101,3 @@ class BatchedInput(BaseInputData):
             self.targets: targets,
             self.contexts: contexts
         })
-
-    def decode(self, d):
-        ret = []
-        for c in d:
-            if c <= 0: continue
-            if self.hparams.input_unit == "word":
-                if c == 1: return ret # sos
-            # ret += str(c) + " "
-            if self.decoder_map[c] == '<sos>': continue
-            if self.hparams.input_unit == "word":
-                val = self.decoder_map[c].split('+')[0]
-            else:
-                val = self.decoder_map[c]
-            ret.append(val if c in self.decoder_map else '?')
-        return ret

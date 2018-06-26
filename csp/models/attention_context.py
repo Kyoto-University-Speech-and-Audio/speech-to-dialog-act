@@ -4,7 +4,6 @@ from __future__ import division
 from __future__ import print_function
 
 from .attention import AttentionModel as BaseAttentionModel
-from .cells.CLSTMCell import CLSTMCell
 
 """Example soft monotonic alignment decoder implementation.
 This file contains an example TensorFlow implementation of the approach
@@ -57,9 +56,6 @@ class AttentionModel(BaseAttentionModel):
                 self._iterator.get_next()
         else:
             ((self.input_filenames, self.inputs, self.input_seq_len), self.contexts) = self._iterator.get_next()
-
-    #def _get_decoder_cell(self):
-        #return CLSTMCell(self.hparams.decoder_num_units, self.contexts)
 
     def _train_decode_fn(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope):
         self.contexts = tf.tile(tf.expand_dims(self.contexts, axis=1), [1, tf.shape(decoder_inputs)[1], 1])

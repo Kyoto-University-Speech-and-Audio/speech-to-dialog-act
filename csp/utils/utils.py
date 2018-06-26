@@ -16,6 +16,8 @@ def get_batched_input_class(hparams):
         from ..input_data.erato import BatchedInput
     elif hparams.dataset == 'erato_context':
         from ..input_data.erato_context import BatchedInput
+    elif hparams.dataset == 'erato_prev_utt':
+        from ..input_data.erato_prev_utt import BatchedInput
 
     return BatchedInput
 
@@ -39,6 +41,9 @@ def get_model_class(hparams):
         return AttentionModel()
     elif hparams.model == 'attention_context':
         from ..models.attention_context import AttentionModel
+        return AttentionModel()
+    elif hparams.model == 'attention_prev_utt':
+        from ..models.attention_prev_utt_lstm import AttentionModel
         return AttentionModel()
     elif hparams.model == 'ctc-attention':
         from ..models.ctc_attention import CTCAttentionModel as Model
@@ -113,13 +118,15 @@ def get_batched_dataset_bucket(dataset, batch_size, coef_count, num_buckets, mod
                 tf.contrib.data.group_by_window(
                     key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
 
+def argval(name, flags):
+    if hasattr(flags, name):
+        return getattr(flags, name)
+    else:
+        return None
 
 def create_hparams(flags):
-    def argval(name):
-        if hasattr(flags, name):
-            return getattr(flags, name)
-        else:
-            return None
+    def _argval(name):
+        return argval(name, flags)
 
     hparams = tf.contrib.training.HParams(
         model=flags.model,
@@ -146,7 +153,7 @@ def create_hparams(flags):
 
         colocate_gradients_with_ops=True,
 
-        learning_rate=argval("learning_rate") or 1e-3,
+        learning_rate=_argval("learning_rate") or 1e-3,
         optimizer="adam",
 
         # Data
@@ -165,7 +172,7 @@ def create_hparams(flags):
         attention_num_units=128,
 
         # Infer
-        input_path=argval("input_path") or "/n/sd7/trung/test.txt",
+        input_path=_argval("input_path") or "/n/sd7/trung/test.txt",
         hcopy_path=None,
         hcopy_config=None,
         length_penalty_weight=0.0,

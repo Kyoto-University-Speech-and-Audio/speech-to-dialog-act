@@ -42,14 +42,12 @@ class BaseModel(object):
         self.params = self._get_trainable_params(**kwargs)
 
     def _build_eval_model(self):
-        # self.batch_size = tf.shape(self.input_seq_len)[0]
         self.loss = self._build_graph()
         self.summary = tf.summary.merge([
             tf.summary.scalar('eval_loss', self.loss),
         ])
 
     def _build_infer_model(self):
-        # self.batch_size = tf.shape(self.input_seq_len)[0]
         self.target_labels, self.target_seq_len = None, None
         self._build_graph()
         # self.summary = self._get_attention_summary()
@@ -101,5 +99,3 @@ class BaseModel(object):
 
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
-
-

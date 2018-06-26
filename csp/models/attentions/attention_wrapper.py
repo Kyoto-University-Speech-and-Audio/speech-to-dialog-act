@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState
 
 
-class ContextualAttentionWrapper(AttentionWrapper):
+class AttentionWrapper(AttentionWrapper):
     """Wraps another `RNNCell` with attention.
     """
 
@@ -58,7 +58,7 @@ class ContextualAttentionWrapper(AttentionWrapper):
         cell_output, next_cell_state = self._cell(cell_inputs, cell_state)
 
         cell_batch_size = (
-                cell_output.shape[0].value or array_ops.shape(cell_output)[0])
+                cell_output.shape[0].value or tf.shape(cell_output)[0])
         error_message = (
                 "When applying AttentionWrapper %s: " % self.name +
                 "Non-matching batch sizes between the memory "
@@ -66,9 +66,9 @@ class ContextualAttentionWrapper(AttentionWrapper):
                 "the BeamSearchDecoder?  You may need to tile your memory input via "
                 "the tf.contrib.seq2seq.tile_batch function with argument "
                 "multiple=beam_width.")
-        with ops.control_dependencies(
+        with tf.control_dependencies(
                 self._batch_size_checks(cell_batch_size, error_message)):
-            cell_output = array_ops.identity(
+            cell_output = tf.identity(
                 cell_output, name="checked_cell_output")
 
         if self._is_multi:
@@ -94,7 +94,7 @@ class ContextualAttentionWrapper(AttentionWrapper):
             all_attentions.append(attention)
             maybe_all_histories.append(alignment_history)
 
-        attention = array_ops.concat(all_attentions, 1)
+        attention = tf.concat(all_attentions, 1)
         next_state = AttentionWrapperState(
             time=state.time + 1,
             cell_state=next_cell_state,
@@ -104,3 +104,30 @@ class ContextualAttentionWrapper(AttentionWrapper):
             alignment_history=self._item_or_tuple(maybe_all_histories))
 
         return cell_output, next_state
+
+def _compute_attention(attention_mechanism, cell_output, attention_state,
+                       attention_layer):
+    """Computes the attention and alignments for a given attention_mechanism."""
+    alignments, next_attention_state = attention_mechanism(
+        cell_output, state=attention_state)
+
+    # Reshape from [batch_size, memory_time] to [batch_size, 1, memory_time]
+    expanded_alignments = tf.expand_dims(alignments, 1)
+    # Context is the inner product of alignments and values along the
+    # memory time dimension.
+    # alignments shape is
+    #   [batch_size, 1, memory_time]
+    # attention_mechanism.values shape is
+    #   [batch_size, memory_time, memory_size]
+    # the batched matmul is over memory_time, so the output shape is
+    #   [batch_size, 1, memory_size].
+    # we then squeeze out the singleton dim.
+    context = tf.matmul(expanded_alignments, attention_mechanism.values)
+    context = tf.squeeze(context, [1])
+
+    if attention_layer is not None:
+        attention = attention_layer(tf.concat([cell_output, context], 1))
+    else:
+        attention = context
+
+    return attention, alignments, next_attention_state

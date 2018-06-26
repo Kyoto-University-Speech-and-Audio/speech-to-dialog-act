@@ -57,23 +57,24 @@ class ModelWrapper(BaseModelWrapper):
             )
 
 def load_model(sess, hparams, flags):
-    # sess.run(tf.global_variables_initializer())
-    # sess.run(tf.tables_initializer())
-    print(tf.global_variables())
+    #sess.run(tf.global_variables_initializer())
+    #sess.run(tf.tables_initializer())
+
     if hparams.load:
         ckpt = os.path.join(hparams.out_dir, "csp.%s.ckpt" % hparams.load)
     else:
         ckpt = tf.train.latest_checkpoint(hparams.out_dir)
 
     if ckpt:
-        saver = tf.train.Saver()
-        #print(sess.run([v for v in tf.global_variables() if v.op.name == "decoder/decoder_emb_layer/bias"][0]))
+        var_list = tf.global_variables()
+        for var in var_list:
+            if var.op.name == "Variable_1": var_list.remove(var)
+        saver = tf.train.Saver(var_list)
         saver.restore(sess, ckpt)
-        # self.model.load(sess, ckpt, flags)
         '''
-                    # for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
-                    #    saver_variables.remove(var)
-                    var_map = {
+        # for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
+        #   saver_variables.remove(var)
+            var_map = {
                         #"decoder/decoder_emb_layer/kernel": "decoder/dense/kernel",
                         #"decoder/decoder_emb_layer/bias": "decoder/dense/bias",
                     }
@@ -88,10 +89,7 @@ def load_model(sess, hparams, flags):
                         saver.restore(sess, ckpt)
                     else:
                         self.model.saver.restore(sess, ckpt)
-                    '''
-
-        # global_step = self.model.global_step.eval(session=sess)
-        # return self.model, global_step
+        '''
 
 def eval(hparams, flags=None):
     tf.reset_default_graph()
@@ -104,24 +102,18 @@ def eval(hparams, flags=None):
         batched_input = BatchedInput(hparams, mode)
         batched_input.init_dataset()
 
-        model_fn = lambda: Model(
-            hparams, mode,
-            batched_input.iterator
-        )
+        #eval_writer = tf.summary.FileWriter(
+        #    os.path.join(hparams.summaries_dir, "log_eval"))
 
-        eval_writer = tf.summary.FileWriter(
-            os.path.join(hparams.summaries_dir, "log_eval"))
-
-        trainer = Trainer(hparams, mode)
-        trainer(model_fn, batched_input)
+        trainer = Trainer(hparams, Model, BatchedInput, mode)
+        trainer.build_model()
 
         sess = tf.Session(graph=graph)
         load_model(sess, hparams, flags)
         trainer.init(sess)
 
         batched_input.reset_iterator(sess)
-        test_ler = 0
-        total_count = 0
+        lers = []
 
         pbar = tqdm(total=batched_input.size, ncols=100)
         pbar.set_description("Eval")
@@ -131,22 +123,13 @@ def eval(hparams, flags=None):
                 input_filenames, target_labels, decoded, summary = trainer.eval(sess)
 
                 for i in range(len(target_labels)):
-                    str_original = batched_input.decode(target_labels[i])
-                    str_decoded = batched_input.decode(decoded[i])
-                    str_original = list(filter(lambda it: it != '<sp>', str_original))
-                    str_decoded = list(filter(lambda  it: it != '<sp>', str_decoded))
-                    if len(str_original) != 0:
-                        # ler = ops_utils.levenshtein(''.join(str_original), ''.join(str_decoded)) / len(''.join(str_original))
-                        # ler = ops_utils.levenshtein(target_labels[i], decoded[i]) / len(target_labels[i])
-                        ler = ops_utils.levenshtein(str_original, str_decoded) / len(str_original)
-                        ler = min(1.0, ler)
-                    else: continue
-                    test_ler += ler
-                    total_count += 1
+                    ler, str_original, str_decoded = ops_utils.calculate_ler(
+                        target_labels[i], decoded[i], batched_input.decode)
+                    lers.append(ler)
                     filename = input_filenames[i].decode('utf-8')
 
                     #if flags.verbose:
-                    #print("%s\n%s\nLER: %.3f\n" % (' '.join(str_original), ' '.join(str_decoded), ler))
+                    print("%s\n%s\nLER: %.3f\n" % (' '.join(str_original), ' '.join(str_decoded), ler))
                     fo.write("%s\t%s\t%.3f\n" % (filename, ' '.join(str_decoded), ler))
 
                     meta = tf.SummaryMetadata()
@@ -156,23 +139,21 @@ def eval(hparams, flags=None):
                         tag=os.path.basename(filename),
                         metadata=meta,
                         tensor=tf.make_tensor_proto('%s\n\n*(LER=%.3f)* ->\n\n%s' % (
-                        ' '.join(str_original), test_ler / total_count, ' '.join(str_decoded)), dtype=tf.string))
-                    eval_writer.add_summary(summary, trainer.epoch_exact)
+                        ' '.join(str_original), sum(lers) / len(lers), ' '.join(str_decoded)), dtype=tf.string))
+                    #eval_writer.add_summary(summary, trainer.epoch_exact)
 
                 pbar.update(hparams.batch_size)
-                pbar.set_postfix(ler="%.3f" % (test_ler / total_count))
+                pbar.set_postfix(ler="%.3f" % (sum(lers) / len(lers)))
             except tf.errors.OutOfRangeError:
                 break
 
-    fo.write("LER: %.3f" % (test_ler / total_count))
+    fo.write("LER: %.3f" % (sum(lers) / len(lers)))
     fo.close()
 
-    tf.logging.info("test_ler = {:.3f}".format(test_ler / total_count))
-    eval_writer.add_summary(
-        tf.Summary(value=[tf.Summary.Value(simple_value=test_ler / total_count, tag="label_error_rate")]), trainer.epoch_exact)
-    if summary: eval_writer.add_summary(summary, trainer.epoch_exact)
-    return test_ler / total_count
-
+    tf.logging.info("test_ler = {:.3f}".format(sum(lers) / len(lers)))
+    #eval_writer.add_summary(
+    #    tf.Summary(value=[tf.Summary.Value(simple_value=sum(lers) / len(lers), tag="label_error_rate")]), trainer.epoch_exact)
+    #if summary: eval_writer.add_summary(summary, trainer.epoch_exact)
 
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)

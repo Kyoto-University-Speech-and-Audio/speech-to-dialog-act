@@ -17,14 +17,17 @@ in order to facilitate comparison between the two decoders.
 """
 import tensorflow as tf
 #from .attentions.attention_wrapper import AttentionWrapper
-from tensorflow.contrib.seq2seq import AttentionWrapper
+from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState
+from tensorflow.contrib.rnn import LSTMStateTuple
 
 NUM_SPEAKERS = 2
 
 class AttentionModel(BaseAttentionModel):
     def __init__(self):
         super().__init__(
-            attention_wrapper_fn=self._attention_wrapper
+            # attention_wrapper_fn=self._attention_wrapper,
+            train_decode_fn = self._train_decode_fn,
+            eval_decode_fn = self._eval_decode_fn
         )
 
     def _attention_wrapper(self,
@@ -104,29 +107,61 @@ class AttentionModel(BaseAttentionModel):
                     name="context_speaker_%d" % s,
                     trainable=False, dtype=tf.float32))
 
-        print(self.contexts)
         self.full_context = tf.concat(self.contexts, axis=-1)
 
         ret = super()._build_graph()
 
-        print(self.final_context_state.cell_state)
+        print("final", self.final_context_state.cell_state)
         with tf.control_dependencies([self.final_context_state.cell_state[1]]):
             context_updates = []
             for s in range(NUM_SPEAKERS):
-                update_context = tf.assign(
-                    self.contexts[s],
-                    tf.where(
-                        tf.equal(self.is_first_utts, False),
+                for state_id in range(2):
+                    update_context = tf.assign(
+                        self.contexts[s][state_id],
                         tf.where(
-                            tf.equal(self.speakers, s),
-                            self.final_context_state.cell_state,
-                            self.contexts[s],
-                        ),
-                        self._get_decoder_cell().zero_state(self.hparams.batch_size, dtype=tf.float32)
+                            tf.equal(self.is_first_utts, False),
+                            tf.where(
+                                tf.equal(self.speakers, s),
+                                self.final_context_state.cell_state[state_id],
+                                self.contexts[s][state_id],
+                            ),
+                            self._get_decoder_cell().zero_state(self.hparams.batch_size, dtype=tf.float32)[state_id]
+                        )
                     )
-                )
-                context_updates.append(update_context)
+                    context_updates.append(update_context)
 
             self._extra_ops = tf.group(context_updates)
 
         return ret
+
+    def _build_context(self, decoder_cell, encoder_outputs):
+        context = tf.where(
+            tf.equal(self.speakers, 0),
+            self.contexts[0][1],
+            self.contexts[1][1]
+        )
+        initial_state = [None] * NUM_SPEAKERS
+        for s in range(NUM_SPEAKERS):
+            initial_state[s] = tf.where(
+                tf.equal(self.speakers, 0),
+                self.contexts[1][s],
+                self.contexts[0][s]
+            )
+        initial_state = LSTMStateTuple(initial_state[0], initial_state[1])
+        initial_state = self._get_attention_cell(decoder_cell, encoder_outputs) \
+            .zero_state(self.hparams.batch_size, tf.float32) \
+            .clone(cell_state=initial_state)
+        return context, initial_state
+
+
+    def _train_decode_fn(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope):
+        context, initial_state = self._build_context(decoder_cell, encoder_outputs)
+        context = tf.tile(tf.expand_dims(context, axis=1), [1, tf.shape(decoder_inputs)[1], 1])
+        decoder_inputs = tf.concat([decoder_inputs, context], axis=-1)
+        return super()._train_decode_fn_default(
+            decoder_inputs, target_seq_len,
+            initial_state, encoder_outputs, decoder_cell, scope)
+
+    def _eval_decode_fn(self, initial_state, encoder_outputs, decoder_cell, scope):
+        context, initial_state = self._build_context(decoder_cell, encoder_outputs)
+        return super()._eval_decode_fn_default(initial_state, encoder_outputs, decoder_cell, scope, context)
