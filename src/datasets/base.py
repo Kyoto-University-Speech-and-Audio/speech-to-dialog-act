@@ -6,8 +6,6 @@ from subprocess import call, PIPE
 import numpy as np
 import tensorflow as tf
 
-DCT_COEFFICIENT_COUNT = 120
-
 class BaseInputData():
     def __init__(self,
                  hparams,
@@ -37,10 +35,6 @@ class BaseInputData():
             self.batch_size = hparams.eval_batch_size
         else:
             self.data_filename = hparams.input_path
-
-    @property
-    def num_features(self):
-        return DCT_COEFFICIENT_COUNT
 
     def load_wav(self, filename):
         outfile = "tmp.htk"

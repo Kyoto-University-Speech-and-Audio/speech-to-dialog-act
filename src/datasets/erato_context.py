@@ -3,36 +3,25 @@ import random
 import tensorflow as tf
 
 from .base import BaseInputData
-from ..utils import utils
-
-
-DCT_COEFFICIENT_COUNT = 120
 
 class BatchedInput(BaseInputData):
-    num_features = DCT_COEFFICIENT_COUNT
-    # num_classes = 3260 + 1
-    # num_classes = 34331
-    
     def __init__(self, hparams, mode):
         self.mode = mode
         self.hparams = hparams
 
         BaseInputData.__init__(self, hparams, mode)
 
-        filenames, targets, contexts = [], [], []
+        inputs = []
         for line in open(self.data_filename, "r"):
             if self.mode != tf.estimator.ModeKeys.PREDICT:
                 if line.strip() == "": continue
                 [filename, context, target] = line.strip().split('\t')
-                targets.append(target)
-                contexts.append([float(c) for c in context.split(' ')])
+                inputs.append((filename, [float(c) for c in context.split(' ')], target))
             else:
                 filename = line.strip()
-            filenames.append(filename)
-        self.size = len(filenames)
-        self.input_filenames = filenames
-        self.input_targets = targets
-        self.input_contexts = contexts
+
+        self.size = len(inputs)
+        self.inputs = inputs
 
     def init_dataset(self):
         CONTEXT_SIZE = 35
@@ -68,33 +57,12 @@ class BatchedInput(BaseInputData):
 
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
-    def reset_iterator(self, sess, skip=0, shuffle=False):
-        filenames = self.input_filenames
-        targets = self.input_targets
-        contexts = self.input_contexts
-        
-        if shuffle and 0:
-            bucket = 10000
-            shuffled_filenames = []
-            shuffled_targets = []
-            for i in range(0, len(filenames) // bucket):
-                start, end = i * bucket, min((i + 1) * bucket, len(filenames))
-                ls = list(zip(filenames[start:end], targets[start:end]))
-                random.shuffle(ls)
-                fs, ts = zip(*ls)
-                shuffled_filenames += fs
-                shuffled_targets += ts
-            filenames = shuffled_filenames
-            targets = shuffled_targets
+    def reset_iterator(self, sess, skip=0, shuffle=False, bucket_size=None):
+        if shuffle: inputs = self.shuffle(self.inputs, bucket_size)
+        else: inputs = self.inputs
+        inputs = inputs[skip:]
 
-        if shuffle:
-            ls = list(zip(filenames, targets))
-            random.shuffle(ls)
-            filenames, targets = zip(*ls)
-
-        filenames = filenames[skip:]
-        targets = targets[skip:]
-        contexts = contexts[skip:]
+        filenames, contexts, targets = zip(*inputs)
 
         sess.run(self.iterator.initializer, feed_dict={
             self.filenames: filenames,

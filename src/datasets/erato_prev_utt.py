@@ -3,16 +3,8 @@ import random
 import tensorflow as tf
 
 from .base import BaseInputData
-from ..utils import utils
-
-
-DCT_COEFFICIENT_COUNT = 120
 
 class BatchedInput(BaseInputData):
-    num_features = DCT_COEFFICIENT_COUNT
-    # num_classes = 3260 + 1
-    # num_classes = 34331
-    
     def __init__(self, hparams, mode):
         self.mode = mode
         self.hparams = hparams
@@ -56,7 +48,7 @@ class BatchedInput(BaseInputData):
 
         self.batched_dataset = src_tgt_dataset.padded_batch(
             self.batch_size,
-            padded_shapes=(([], [None, DCT_COEFFICIENT_COUNT], []), [], [],
+            padded_shapes=(([], [None, self.hparams.num_features], []), [], [],
                            ([None], [])),
             padding_values=(('', 0.0, 0), False, -1, (1, 0))
         )

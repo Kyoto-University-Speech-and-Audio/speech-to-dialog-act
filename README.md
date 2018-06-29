@@ -1,3 +1,5 @@
+Experimental speech recognition library
+
 # Programs
 
 - `train.py`
@@ -9,7 +11,6 @@
 
 - `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
 - `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
-- `data/`: Datasets
 
 # Preparing Data
 

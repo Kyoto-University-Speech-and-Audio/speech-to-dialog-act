@@ -7,11 +7,8 @@ from csp.utils import wav_utils
 from .base import BaseInputData
 from ..utils import utils
 
-DCT_COEFFICIENT_COUNT = 120
 
 class BatchedInput(BaseInputData):
-    num_features = DCT_COEFFICIENT_COUNT
-    
     def __init__(self, hparams, mode):
         self.mode = mode
         self.hparams = hparams
@@ -64,7 +61,7 @@ class BatchedInput(BaseInputData):
         self.batched_dataset = utils.get_batched_dataset(
             src_tgt_dataset,
             self.hparams.batch_size,
-            DCT_COEFFICIENT_COUNT,
+            self.hparams.num_features,
             #self.hparams.num_buckets,
             self.mode,
             padding_values=0 if self.hparams.input_unit == "char" else 1

@@ -18,13 +18,11 @@ def get_batched_input_class(hparams):
         from ..datasets.erato_context import BatchedInput
     elif hparams.dataset == 'erato_prev_utt':
         from ..datasets.erato_prev_utt import BatchedInput
-
     return BatchedInput
 
 
 def get_model_class(hparams):
     Model = None
-
     if hparams.model == 'ctc':
         from ..models.ctc import CTCModel as Model
     elif hparams.model == 'attention':
@@ -53,7 +51,6 @@ def get_model_class(hparams):
         return AttentionModel
     elif hparams.model == 'ctc-attention':
         from ..models.ctc_attention import CTCAttentionModel as Model
-
     return Model
 
 
@@ -64,6 +61,7 @@ def get_optimizer(hparams, learning_rate):
         return tf.train.AdamOptimizer(learning_rate)
     elif hparams.optimizer == "momentum":
         return tf.train.MomentumOptimizer(learning_rate, 0.9)
+
 
 def get_batched_dataset(dataset, batch_size, coef_count, mode, padding_values=0):
     dataset = dataset.padded_batch(
@@ -77,6 +75,7 @@ def get_batched_dataset(dataset, batch_size, coef_count, mode, padding_values=0)
     #else:
     #    dataset = dataset.filter(lambda x, y: tf.equal(tf.shape(x[0])[0], batch_size))
     return dataset
+
 
 def get_batched_dataset_bucket(dataset, batch_size, coef_count, num_buckets, mode, padding_values=0):
     def batching_func(x):
@@ -124,11 +123,13 @@ def get_batched_dataset_bucket(dataset, batch_size, coef_count, num_buckets, mod
                 tf.contrib.data.group_by_window(
                     key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
 
+
 def argval(name, flags):
     if hasattr(flags, name):
         return getattr(flags, name)
     else:
         return None
+
 
 def create_hparams(flags):
     def _argval(name):
@@ -158,6 +159,7 @@ def create_hparams(flags):
         num_encoder_layers=3,
         num_decoder_layers=1,
         num_classes=0,
+        num_features=120,
 
         colocate_gradients_with_ops=True,
 
@@ -200,9 +202,11 @@ def create_hparams(flags):
 
     return hparams
 
+
 def clear_log(path=None):
     f = open(path or configs.DEFAULT_LOG_PATH, 'w')
     f.close()
+
 
 def write_log(text, path=None):
     f = open(path or configs.DEFAULT_LOG_PATH, 'a')

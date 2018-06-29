@@ -5,32 +5,25 @@ import tensorflow as tf
 from .base import BaseInputData
 from ..utils import utils
 
-DCT_COEFFICIENT_COUNT = 120
-
 class BatchedInput(BaseInputData):
-    num_features = DCT_COEFFICIENT_COUNT
-    # num_classes = 3260 + 1
-    # num_classes = 34331
-    
     def __init__(self, hparams, mode):
         BaseInputData.__init__(
             self, hparams, mode,
             mean_val_path="data/aps-sps/mean.dat",
             var_val_path="data/aps-sps/var.dat")
 
-        filenames, targets = [], []
+        inputs = []
         for line in open(self.data_filename, "r"):
             if self.mode != tf.estimator.ModeKeys.PREDICT:
                 if line.strip() == "": continue
                 filename, target = line.strip().split(' ', 1)
-                targets.append(target)
+                inputs.append((filename, target))
             else:
                 filename = line.strip()
-            filenames.append(filename)
+                inputs.append(filename)
 
-        self.size = len(filenames)
-        self.input_filenames = filenames
-        self.input_targets = targets
+        self.size = len(inputs)
+        self.inputs = inputs
 
         self.filenames = tf.placeholder(dtype=tf.string)
         self.targets = tf.placeholder(dtype=tf.string)
@@ -56,7 +49,7 @@ class BatchedInput(BaseInputData):
         self.batched_dataset = utils.get_batched_dataset_bucket(
             src_tgt_dataset,
             self.hparams.batch_size,
-            DCT_COEFFICIENT_COUNT,
+            self.hparams.num_features,
             self.hparams.num_buckets,
             self.mode,
             padding_values=0 if self.hparams.input_unit == "char" else 1
@@ -65,29 +58,11 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def reset_iterator(self, sess, skip=0, shuffle=False, bucket_size=None):
-        filenames = self.input_filenames
-        targets = self.input_targets
-        
-        if shuffle:
-            if bucket_size:
-                shuffled_filenames = []
-                shuffled_targets = []
-                for i in range(0, len(filenames) // bucket_size):
-                    start, end = i * bucket_size, min((i + 1) * bucket_size, len(filenames))
-                    ls = list(zip(filenames[start:end], targets[start:end]))
-                    random.shuffle(ls)
-                    fs, ts = zip(*ls)
-                    shuffled_filenames += fs
-                    shuffled_targets += ts
-                filenames = shuffled_filenames
-                targets = shuffled_targets
-            else:
-                ls = list(zip(filenames, targets))
-                random.shuffle(ls)
-                filenames, targets = zip(*ls)
+        if shuffle: inputs = self.shuffle(self.inputs, bucket_size)
+        else: inputs = self.inputs
+        inputs = inputs[skip:]
 
-        filenames = filenames[skip:]
-        targets = targets[skip:]
+        filenames, targets = zip(*inputs)
 
         sess.run(self.iterator.initializer, feed_dict={
             self.filenames: filenames,

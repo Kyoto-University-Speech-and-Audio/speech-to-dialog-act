@@ -20,14 +20,7 @@ SPACE_TOKEN = '<space>'
 SPACE_INDEX = 0
 FIRST_INDEX = 1
 
-DCT_COEFFICIENT_COUNT = 120
-
-
 class BatchedInput(BaseInputData):
-    num_features = DCT_COEFFICIENT_COUNT
-    # num_classes = 3260 + 1
-    # num_classes = 34331
-    
     def __init__(self, hparams, mode):
         self.mode = mode
         self.hparams = hparams

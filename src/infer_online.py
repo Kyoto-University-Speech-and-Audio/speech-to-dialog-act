@@ -1,37 +1,22 @@
 import argparse
 import os
-import tensorflow as tf
 import sys
-from .utils import utils
-import pyaudio
 import wave
 from array import array
-import os
+
+import pyaudio
+import tensorflow as tf
+
+from . import configs
+from .utils import utils
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
 
+
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
-
     parser.add_argument('--config', type=str, default=None)
-    parser.add_argument('--dataset', type=str, default="vivos")
-    parser.add_argument('--model', type=str, default="ctc")
-    parser.add_argument('--input_unit', type=str, default="char", help="word | char")
-    parser.add_argument('--name', type=str, default=None)
-
-    parser.add_argument("--num_buckets", type=int, default=5,
-                        help="Put data into similar-length buckets.")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size.")
-
-    parser.add_argument(
-        "--num_train_steps", type=int, default=12000, help="Num steps to train.")
-    parser.add_argument("--input_path", type=str, default=None)
-    parser.add_argument("--summaries_dir", type=str, default="log")
-    parser.add_argument("--out_dir", type=str, default=None,
-                        help="Store log/model files.")
-
-    parser.add_argument('--server', type="bool", const=True, nargs="?", default=False)
 
 
 class ModelWrapper:
@@ -78,6 +63,7 @@ class ModelWrapper:
                 except tf.errors.OutOfRangeError:
                     return
 
+
 def load(Model, BatchedInput, hparams):
     infer_model = ModelWrapper(
         hparams,
@@ -95,6 +81,7 @@ def load(Model, BatchedInput, hparams):
         infer_model.batched_input.reset_iterator(infer_sess)
 
     return infer_sess, infer_model, global_step
+
 
 def record(filename):
     FORMAT = pyaudio.paInt16
@@ -141,6 +128,7 @@ def record(filename):
     wavfile.writeframes(b''.join(frames))  # append frames recorded to file
     wavfile.close()
 
+
 def play(filename):
     CHUNK = 1024
     wf = wave.open(filename, 'rb')
@@ -167,15 +155,13 @@ def play(filename):
     stream.close()
     p.terminate()
 
+
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)
-    #hparams.hcopy_path = "/n/sd7/trung/bin/htk/HTKTools/HCopy"
-    hparams.hcopy_path = os.path.join("bin", "htk", "bin.win32", "HCopy.exe")
-    #hparams.hcopy_config = os.path.join("/n/sd7/trung/config.lmfb.40ch")
-    hparams.hcopy_config = os.path.join("data", "config.lmfb.40ch")
+    hparams.hcopy_path = configs.HCOPY_PATH
+    hparams.hcopy_config = configs.HCOPY_CONFIG_PATH
 
     hparams.input_path = os.path.join("tmp", "input.tmp")
-    # with open(hparams.input_path, "w") as f: f.write("")
     BatchedInput = utils.get_batched_input_class(hparams)
     Model = utils.get_model_class(hparams)
     sess, model, _ = load(Model, BatchedInput, hparams)
@@ -190,7 +176,6 @@ def main(unused_argv):
         # record()
         print("Inferring...", end="\r")
         model.infer("test.wav", sess)
-        # play("test.wav")
 
 
 if __name__ == "__main__":
