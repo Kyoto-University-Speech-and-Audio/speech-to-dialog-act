@@ -1,4 +1,5 @@
 import os
+
 from tensorflow.python.platform import gfile
 import numpy as np
 

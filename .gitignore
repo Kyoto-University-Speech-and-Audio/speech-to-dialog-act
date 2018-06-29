@@ -1,5 +1,5 @@
-saved_models
-data
+saved_models/
+data/
 tmp
 **/__pycache__
 .idea
@@ -8,6 +8,6 @@ tmp
 **/*.out
 repos
 bin
-log
+log/
 **/*.DS_Store
 csp/tmp

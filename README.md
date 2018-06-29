@@ -5,6 +5,12 @@
 - `infer.py`
 - `infer_online.py`
 
+# Folders
+
+- `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
+- `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
+- `data/`: Datasets
+
 # Preparing Data
 
 Default loader will load data from one single file with following syntax
@@ -13,11 +19,11 @@ Default loader will load data from one single file with following syntax
 <path_to_audio_file> <sequence_of_target_labels>
 ```
 
-where `<path_to_audio_file>` can by `wav`, `htk` or `npy` file that contains original sound fle / acoustic features and `<sequence_of_target_labels>` contains ground-truth labels.
+where `<path_to_audio_file>` can by `wav`, `htk` or `npy` file that contains original sound / pre-processed acoustic features and `<sequence_of_target_labels>` contains ground-truth labels.
 
-If you use `htk`, HTK Speech Recognition Toolkit must be presented and specified in source code.
+If you use `wav`, path to HTK Speech Recognition Toolkit binary file must be provided in source code.
 
-A vocabulary files must be prepared with each line contains `<word> <id>`. See below for model configurations.
+A vocabulary files must also be prepared with each line contains `<word> <id>`. See below for model configurations.
 
 # Training Examples
 
@@ -45,7 +51,7 @@ python -m csp.infer_online --config=attention_aps_char
 
 This command will launch a program on terminal which listens to microphone and decode each utterance separated by non-voice range. Used to check accuracy in practice.
 
-# Optional Parameters
+# Training & Evaluation Arguments
 
 ## Model Configuration
 
@@ -101,7 +107,7 @@ Default behaviour is training from last saved model. These method can be used fo
 
 `--eval` (default: 1000): accuracy on test set will be calculated and written to tensorboard after each specified number of steps. Useful for checking for performance or attention alignments
 
-# Customize for experiments
+# Customizing for experiments
 
 New model should be subclassed form `BaseModel`, which handles loading hyper-parameters.
 
