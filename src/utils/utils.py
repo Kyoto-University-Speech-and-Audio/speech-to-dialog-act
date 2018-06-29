@@ -5,19 +5,19 @@ def get_batched_input_class(hparams):
     BatchedInput = None
 
     if hparams.dataset == 'vivos':
-        from ..input_data.vivos_feature import BatchedInput
+        from ..datasets.vivos_feature import BatchedInput
     elif hparams.dataset == 'vctk':
-        from ..input_data.vctk import BatchedInput
+        from ..datasets.vctk import BatchedInput
     elif hparams.dataset == 'aps':
-        from ..input_data.aps import BatchedInput
+        from ..datasets.aps import BatchedInput
     elif hparams.dataset == 'aps-word':
-        from ..input_data.aps import BatchedInput
+        from ..datasets.aps import BatchedInput
     elif hparams.dataset == 'erato':
-        from ..input_data.erato import BatchedInput
+        from ..datasets.erato import BatchedInput
     elif hparams.dataset == 'erato_context':
-        from ..input_data.erato_context import BatchedInput
+        from ..datasets.erato_context import BatchedInput
     elif hparams.dataset == 'erato_prev_utt':
-        from ..input_data.erato_prev_utt import BatchedInput
+        from ..datasets.erato_prev_utt import BatchedInput
 
     return BatchedInput
 
