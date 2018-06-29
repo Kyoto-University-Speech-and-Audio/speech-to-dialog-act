@@ -10,3 +10,4 @@ repos
 bin
 log
 **/*.DS_Store
+csp/tmp

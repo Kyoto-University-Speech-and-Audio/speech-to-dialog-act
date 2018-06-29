@@ -19,17 +19,37 @@ import tensorflow as tf
 #from .attentions.attention_wrapper import AttentionWrapper
 from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState
 from tensorflow.contrib.rnn import LSTMStateTuple
+from tensorflow.contrib.seq2seq import GreedyEmbeddingHelper as BaseHelper
 
 NUM_SPEAKERS = 2
 
+class FixedHelper(tf.contrib.seq2seq.GreedyEmbeddingHelper):
+    def sample(self, *args, **kwargs):
+        result = super().sample(*args, **kwargs)
+        result.set_shape([3])
+        return result
+
+
 class AttentionModel(BaseAttentionModel):
-    def __init__(self):
+    def __init__(self,
+                 feed_initial_state=False):
         super().__init__(
             # attention_wrapper_fn=self._attention_wrapper,
-            train_decode_fn = self._train_decode_fn,
-            eval_decode_fn = self._eval_decode_fn
+            train_decode_fn=self._train_decode_fn,
+            eval_decode_fn=self._eval_decode_fn,
+            greedy_embedding_helper_fn=lambda embedding, start_tokens, end_token:
+                FixedHelper(embedding, start_tokens, end_token)
         )
+        self._feed_initial_state = feed_initial_state
 
+    def __call__(self, hparams, mode, iterator, **kwargs):
+        if mode == tf.estimator.ModeKeys.EVAL:
+            hparams = tf.contrib.training.HParams(**hparams.values())
+            hparams.batch_size = 3
+            print(hparams)
+        super().__call__(hparams, mode, iterator)
+
+    '''
     def _attention_wrapper(self,
                  cell,
                  attention_mechanism,
@@ -47,43 +67,41 @@ class AttentionModel(BaseAttentionModel):
             initial_cell_state=initial_cell_state,
             name=name
         )
+    '''
 
-    def load(self, sess, ckpt, flags):
-        #saver = tf.train.Saver()
-        #saver.restore(sess, ckpt)
-        #return
+    @classmethod
+    def load(cls, sess, ckpt, flags):
         saver_variables = tf.global_variables()
         var_list = {var.op.name: var for var in saver_variables}
 
+        del var_list["Variable"]
         del var_list["Variable_1"]
+
         for s in range(NUM_SPEAKERS): del var_list["context_speaker_%d" % s]
-        for name in var_list:
-            if name[:36] == "decoder/contextual_attention_wrapper":
-                var = var_list[name]
-                del var_list[name]
-                var_list["decoder/attention_wrapper" + name[36:]] = var
+        for s in range(NUM_SPEAKERS):
+            if "context_speaker_%d_1" % s in var_list: del var_list["context_speaker_%d_1" % s]
 
-        print(var_list.keys())
+        loaded_kernel = tf.get_variable("loaded_kernel", shape=[1920, 2560], initializer=tf.zeros_initializer)
+        var_list["decoder/attention_wrapper/basic_lstm_cell/kernel"] = loaded_kernel
+        if flags.mode == "train":
+            loaded_kernel_adam = tf.get_variable("loaded_kernel_adam", shape=[1920, 2560], initializer=tf.zeros_initializer)
+            loaded_kernel_adam1 = tf.get_variable("loaded_kernel_adam1", shape=[1920, 2560], initializer=tf.zeros_initializer)
 
-        loaded_kernel = tf.get_variable("loaded_kernel", shape=[1920, 2560])
-
-        saver = tf.train.Saver(var_list=var_list)
-        saver.restore(sess, ckpt)
-
-        return
-        for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
-                                     scope="decoder/attention_wrapper/basic_lstm_cell/kernel"):
-            del var_list[var.op.name]
-
-            if var.op.name == "decoder/attention_wrapper/basic_lstm_cell/kernel":
-                print(sess.run(tf.pad(loaded_kernel, [[0, 35], [0, 0]])))
-                print(var.get_shape())
-                var = tf.assign(var, tf.pad(loaded_kernel, [[0, 35], [0, 0]]))
-
-            print(sess.run(var))
+            var_list["decoder/attention_wrapper/basic_lstm_cell/kernel/Adam"] = loaded_kernel_adam
+            var_list["decoder/attention_wrapper/basic_lstm_cell/kernel/Adam_1"] = loaded_kernel_adam1
 
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
+
+        var_list = {var.op.name: var for var in saver_variables}
+        sess.run([
+            tf.assign(var_list["decoder/attention_wrapper/basic_lstm_cell/kernel"],
+                      tf.concat([loaded_kernel[:640], tf.zeros([640, 2560]), loaded_kernel[640:]], axis=0)),
+            tf.assign(var_list["decoder/attention_wrapper/basic_lstm_cell/kernel/Adam"],
+                      tf.concat([loaded_kernel_adam[:640], tf.zeros([640, 2560]), loaded_kernel_adam[640:]], axis=0)) if flags.mode == "train" else tf.no_op(),
+            tf.assign(var_list["decoder/attention_wrapper/basic_lstm_cell/kernel/Adam_1"],
+                      tf.concat([loaded_kernel_adam1[:640], tf.zeros([640, 2560]), loaded_kernel_adam1[640:]], axis=0)) if flags.mode == "train" else tf.no_op()
+        ])
 
     def get_extra_ops(self):
         return self._extra_ops
@@ -107,7 +125,7 @@ class AttentionModel(BaseAttentionModel):
                     name="context_speaker_%d" % s,
                     trainable=False, dtype=tf.float32))
 
-        self.full_context = tf.concat(self.contexts, axis=-1)
+        #self.full_context = tf.concat(self.contexts, axis=-1)
 
         ret = super()._build_graph()
 
@@ -156,12 +174,16 @@ class AttentionModel(BaseAttentionModel):
 
     def _train_decode_fn(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope):
         context, initial_state = self._build_context(decoder_cell, encoder_outputs)
-        context = tf.tile(tf.expand_dims(context, axis=1), [1, tf.shape(decoder_inputs)[1], 1])
-        decoder_inputs = tf.concat([decoder_inputs, context], axis=-1)
         return super()._train_decode_fn_default(
             decoder_inputs, target_seq_len,
-            initial_state, encoder_outputs, decoder_cell, scope)
+            initial_state if self._feed_initial_state else None, encoder_outputs, decoder_cell, scope, context)
 
     def _eval_decode_fn(self, initial_state, encoder_outputs, decoder_cell, scope):
         context, initial_state = self._build_context(decoder_cell, encoder_outputs)
-        return super()._eval_decode_fn_default(initial_state, encoder_outputs, decoder_cell, scope, context)
+        return super()._eval_decode_fn_default(
+            initial_state if self._feed_initial_state else None,
+            encoder_outputs, decoder_cell, scope, context)
+
+    @classmethod
+    def trainable_variables(cls):
+        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="decoder")

@@ -10,7 +10,7 @@ DCT_COEFFICIENT_COUNT = 120
 
 class BaseInputData():
     def __init__(self, hparams, mode):
-        labels = [s.strip().split(' ', 1) for s in open(hparams.vocab_file, encoding='eucjp')]
+        labels = [s.strip().split(' ', 1) for s in open(hparams.vocab_file, encoding=hparams.encoding)]
         self.decoder_map = {int(label[1]): label[0] for label in labels}
         self.num_classes = len(labels)
         self.hparams = hparams
@@ -20,8 +20,10 @@ class BaseInputData():
 
         if self.mode == tf.estimator.ModeKeys.TRAIN:
             self.data_filename = hparams.train_data
+            self.batch_size = hparams.batch_size
         elif self.mode == tf.estimator.ModeKeys.EVAL:
             self.data_filename = hparams.eval_data
+            self.batch_size = hparams.eval_batch_size
         else:
             self.data_filename = hparams.input_path
 
@@ -30,7 +32,6 @@ class BaseInputData():
         return DCT_COEFFICIENT_COUNT
 
     def load_wav(self, filename):
-        print(filename)
         mean = open("data/aps-sps/mean.dat").read().split('\n')[:-1]
         mean = np.array([float(x) for x in mean])
         var = open("data/aps-sps/var.dat").read().split('\n')[:-1]
@@ -90,7 +91,7 @@ class BaseInputData():
 
         self.batched_dataset = utils.get_batched_dataset(
             src_dataset,
-            self.hparams.batch_size,
+            self.batch_size,
             self.num_features,
             self.hparams.num_buckets, self.mode
         )

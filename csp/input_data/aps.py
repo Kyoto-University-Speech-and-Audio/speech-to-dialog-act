@@ -4,7 +4,6 @@ import tensorflow as tf
 
 from .base import BaseInputData
 from ..utils import utils
-from ..utils import wav_utils
 
 DCT_COEFFICIENT_COUNT = 120
 

@@ -33,7 +33,7 @@ class AttentionModel(BaseAttentionModel):
 
         ENCODER_NUM_UNITS = 640
         DECODER_NUM_UNITS = 320
-        ATTENTION_LAYER_SIZE = 128
+        ATTENTION_LAYER_SIZE = 256
         with tf.variable_scope('correction') as correction_scope:
             correction_encoder_outputs, correction_encoder_state = tf.nn.dynamic_rnn(
                 model_utils.single_cell("lstm", ENCODER_NUM_UNITS, self.mode),
@@ -51,7 +51,7 @@ class AttentionModel(BaseAttentionModel):
 
             correction_decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
                 correction_decoder, attention_mechanism2,
-                # attention_layer_size=ATTENTION_LAYER_SIZE,
+                attention_layer_size=ATTENTION_LAYER_SIZE,
                 alignment_history=False,
                 output_attention=True
             )
@@ -72,7 +72,7 @@ class AttentionModel(BaseAttentionModel):
                 sample_ids = tf.argmax(logits, axis=-1)
             else:
                 helper2 = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                    lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
+                    lambda ids: self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.num_classes)),
                     start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
                     end_token=self.hparams.eos_index
                 )

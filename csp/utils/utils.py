@@ -29,22 +29,28 @@ def get_model_class(hparams):
         from ..models.ctc import CTCModel as Model
     elif hparams.model == 'attention':
         from ..models.attention import AttentionModel
-        return AttentionModel()
+        return AttentionModel
     elif hparams.model == 'attention_monotonic_luong':
         from ..models.attention_monotonic import LuongMonotonicAttentionModel
-        return LuongMonotonicAttentionModel()
+        return LuongMonotonicAttentionModel
     elif hparams.model == 'attention_monotonic_bahdanau':
         from ..models.attention_monotonic import BahdanauMonotonicAttentionModel
-        return BahdanauMonotonicAttentionModel()
+        return BahdanauMonotonicAttentionModel
     elif hparams.model == 'attention_correction':
         from ..models.attention_correction import AttentionModel
-        return AttentionModel()
+        return AttentionModel
     elif hparams.model == 'attention_context':
         from ..models.attention_context import AttentionModel
-        return AttentionModel()
+        return AttentionModel
     elif hparams.model == 'attention_prev_utt':
         from ..models.attention_prev_utt_lstm import AttentionModel
-        return AttentionModel()
+        return AttentionModel
+    elif hparams.model == 'attention_prev_utt_is':
+        from ..models.attention_prev_utt_lstm_is import AttentionModel
+        return AttentionModel
+    elif hparams.model == 'attention_keep_encoder':
+        from ..models.attention_keep_encoder import AttentionModel
+        return AttentionModel
     elif hparams.model == 'ctc-attention':
         from ..models.ctc_attention import CTCAttentionModel as Model
 
@@ -135,6 +141,7 @@ def create_hparams(flags):
         input_unit=flags.input_unit,
 
         batch_size=flags.batch_size,
+        eval_batch_size=flags.batch_size,
         num_buckets=5,
 
         sample_rate=16000,
@@ -150,6 +157,7 @@ def create_hparams(flags):
         num_units=320,
         num_encoder_layers=3,
         num_decoder_layers=1,
+        num_classes=0,
 
         colocate_gradients_with_ops=True,
 
@@ -160,6 +168,7 @@ def create_hparams(flags):
         vocab_file=None,
         train_data=None,
         eval_data=None,
+        encoding="euc-jp",
 
         # Attention
         sos_index=1,
@@ -190,3 +199,12 @@ def create_hparams(flags):
     tf.logging.info(hparams)
 
     return hparams
+
+def clear_log(path=None):
+    f = open(path or "log.log", 'w')
+    f.close()
+
+def write_log(text, path=None):
+    f = open(path or "log.log", 'a')
+    f.write('\n'.join(text) + '\n')
+    f.close()

@@ -6,8 +6,10 @@
   "vocab_file": "data/aps-sps/word.id",
   "train_data": "data/erica/train_group_by_dlg_16.txt",
   "eval_data": "data/erica/test_group_by_dlg_16.txt",
-  "batch_size": 32,
+  "batch_size": 16,
+  "eval_batch_size": 3,
   "learning_rate": 1e-4,
+  "num_classes": 34331,
 
   "eos_index": 1,
   "sos_index": 2,

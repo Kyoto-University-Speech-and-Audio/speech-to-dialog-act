@@ -14,18 +14,20 @@ class Trainer(object):
         self.eval_mode = self.mode == tf.estimator.ModeKeys.EVAL
         self.infer_mode = self.mode == tf.estimator.ModeKeys.PREDICT
         self.Model = Model
+        self.BatchedInput = BatchedInput
+        self.batch_size = self.hparams.eval_batch_size if self.eval_mode else self.hparams.batch_size
 
         batched_input_train = BatchedInput(self.hparams, tf.estimator.ModeKeys.TRAIN)
         batched_input_eval = BatchedInput(self.hparams, tf.estimator.ModeKeys.EVAL)
         batched_input_train.init_dataset()
         batched_input_eval.init_dataset()
-        self.hparams.num_classes = batched_input_eval.num_classes
+        self.hparams.num_classes = batched_input_train.num_classes
 
         self._processed_inputs_count = tf.Variable(0, trainable=False)
         self.processed_inputs_count = 0
         self.increment_inputs_count = tf.assign(
             self._processed_inputs_count,
-            self._processed_inputs_count + (self.hparams.batch_size))
+            self._processed_inputs_count + (self.batch_size))
 
         self._global_step = tf.Variable(0, trainable=False)
         self._batched_input_train = batched_input_train
@@ -33,25 +35,28 @@ class Trainer(object):
 
     def init(self, sess):
         self.processed_inputs_count = sess.run(self._processed_inputs_count)
-        self.reset_iterator(sess)
+        self.reset_train_iterator(sess)
+        self._batched_input_eval.reset_iterator(sess)
 
-    def build_model(self, **kwargs):
+    def build_model(self, eval=False):
         if self.train_mode:
             with tf.variable_scope(tf.get_variable_scope()):
                 self.learning_rate = tf.constant(self.hparams.learning_rate)
                 self.learning_rate = self._get_learning_rate_warmup(self.hparams)
                 self.learning_rate = self._get_learning_rate_decay()
 
-                model = self.Model(
+                model = self.Model()
+                model(
                     self.hparams,
                     tf.estimator.ModeKeys.TRAIN,
                     self._batched_input_train.iterator)
                 opt = utils.get_optimizer(self.hparams, self.learning_rate)
                 self.loss = model.loss
-                self.params = self._get_trainable_params(**kwargs)
+                self.params = self.Model.trainable_variables()
 
                 gradients = opt.compute_gradients(
                     self.loss,
+                    var_list=self.params,
                     colocate_gradients_with_ops=self.hparams.colocate_gradients_with_ops)
 
                 clipped_grads, grad_norm_summary, grad_norm = model_utils.gradient_clip(
@@ -67,9 +72,10 @@ class Trainer(object):
 
             self.train_model = model
 
-        if "eval" in kwargs and kwargs["eval"] or self.eval_mode:
-            with tf.variable_scope(tf.get_variable_scope(), reuse=self.train_mode):
-                self.eval_model = self.Model(
+        if eval or self.eval_mode:
+            with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                self.eval_model = self.Model()
+                self.eval_model(
                     self.hparams,
                     tf.estimator.ModeKeys.EVAL,
                     self._batched_input_eval.iterator)
@@ -77,14 +83,13 @@ class Trainer(object):
 
         self.print_logs()
 
-    def reset_iterator(self, sess):
+    def reset_train_iterator(self, sess):
         if self.train_mode:
             self._batched_input_train.reset_iterator(
                 sess,
                 skip=self.processed_inputs_count % self.data_size,
-                shuffle=self.epoch > 5)
-
-        self._batched_input_eval.reset_iterator(sess)
+                #shuffle=self.epoch > 5
+            )
 
     def print_logs(self):
         print("# Variables")
@@ -98,30 +103,31 @@ class Trainer(object):
                 print("  %s, %s, %s" % (param.name, str(param.get_shape()),
                                         param.op.device))
 
-    def _get_trainable_params(self, **kwargs):
-        if "trainable_scope" in kwargs:
-            return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=kwargs['trainable_scope'])
-        else:
-            return tf.trainable_variables()
-
     def train(self, sess):
-        self.processed_inputs_count, _, loss, _, summary, _, _ = sess.run([
-            self._processed_inputs_count,
-            self.update,
-            self.loss,
-            self._global_step,
-            self._summary,
-            self.increment_inputs_count,
-            self.train_model.get_extra_ops()
-        ])
+        try:
+            self.processed_inputs_count, _, loss, _, summary, _, _= sess.run([
+                self._processed_inputs_count,
+                self.update,
+                self.loss,
+                self._global_step,
+                self._summary,
+                self.increment_inputs_count,
+                self.train_model.get_extra_ops(),
+            ])
+        except tf.errors.OutOfRangeError:
+            self.processed_inputs_count, _ = \
+                sess.run([self._processed_inputs_count, self.increment_inputs_count])
+            self.reset_train_iterator(sess)
+            return self.train(sess)
         return loss, summary
 
     def eval(self, sess):
-        input_filenames, target_labels, sample_ids, loss, summary = sess.run([
+        input_filenames, target_labels, sample_ids, loss, summary, _ = sess.run([
             self.eval_model.input_filenames,
             self.eval_model.target_labels,
             self.eval_model.sample_id,
             self.eval_model.loss, self._eval_summary,
+            self.eval_model.get_extra_ops()
         ])
         return input_filenames, target_labels, sample_ids, summary
 
@@ -209,7 +215,7 @@ class Trainer(object):
 
     @property
     def global_step(self):
-        return self.processed_inputs_count / self.hparams.batch_size
+        return self.processed_inputs_count / self.batch_size
 
     @property
     def data_size(self):
@@ -225,9 +231,9 @@ class Trainer(object):
 
     @property
     def epoch_progress(self):
-        return (self.processed_inputs_count % self.data_size) // self.hparams.batch_size
+        return (self.processed_inputs_count % self.data_size) // self.batch_size
 
     @property
     def step_size(self):
-        return self.hparams.batch_size
+        return self.batch_size
 

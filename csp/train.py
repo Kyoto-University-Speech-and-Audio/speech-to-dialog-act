@@ -20,10 +20,16 @@ tf.logging.set_verbosity(tf.logging.INFO)
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
 
-    parser.add_argument('--reset', type="bool", const=True, nargs="?", default=False)
+    parser.add_argument('--mode', type=str, default="train")
+    parser.add_argument('--reset', type="bool", const=True, nargs="?", default=False,
+                        help="No saved model loaded")
     parser.add_argument('--debug', type="bool", const=True, nargs="?", default=False)
-    parser.add_argument('--eval', type="bool", const=True, nargs="?", default=False)
-    parser.add_argument('--gpus', type="bool", const=True, nargs="?", default=False)
+    parser.add_argument('--eval', type=int, const=True, nargs="?", default=0,
+                        help="Frequently check and log evaluation result")
+    parser.add_argument('--gpus', type="bool", const=True, nargs="?", default=False,
+                        help="Use MultiGPUTrainer")
+    parser.add_argument('--transfer', type="bool", const=True, nargs="?", default=False,
+                        help="If model needs custom load.")
 
     parser.add_argument('--name', type=str, default=None)
     parser.add_argument('--config', type=str, default=None)
@@ -48,12 +54,48 @@ def load_model(sess, Model, hparams):
     else:
         ckpt = tf.train.latest_checkpoint(hparams.out_dir)
     if ckpt:
-        Model.load(sess, ckpt, FLAGS)
+        if FLAGS.transfer:
+            saver_variables = tf.global_variables()
+            var_list = {var.op.name: var for var in saver_variables}
+            del var_list["apply_gradients/beta1_power"]
+            del var_list["apply_gradients/beta2_power"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam_1"]
+            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam_1"]
+            saver = tf.train.Saver(var_list)
+            saver.restore(sess, ckpt)
+
+            #Model.load(sess, ckpt, FLAGS)
+        else:
+            saver = tf.train.Saver()
+            saver.restore(sess, ckpt)
 
 def argval(name):
     return utils.argval(name, FLAGS)
 
 def train(Model, BatchedInput, hparams):
+    hparams.beam_width = 0
     graph = tf.Graph()
     mode = tf.estimator.ModeKeys.TRAIN
     with graph.as_default():
@@ -77,18 +119,15 @@ def train(Model, BatchedInput, hparams):
 
         trainer.init(sess)
 
-        train_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "log_train"), sess.graph)
-        eval_writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "log_eval"), sess.graph)
-
-        EVAL_STEP = 1000
+        writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "log"), sess.graph)
 
         last_save_step = trainer.global_step
-        last_eval_pos = trainer.global_step - EVAL_STEP
+        last_eval_pos = trainer.global_step - FLAGS.eval
         epoch_batch_count = trainer.data_size // trainer.step_size
 
         def reset_pbar():
             pbar = tqdm(total=epoch_batch_count,
-                    ncols=100,
+                    ncols=150,
                     unit="step",
                     initial=trainer.epoch_progress)
             pbar.set_description('Epoch %i' % trainer.epoch)
@@ -96,6 +135,8 @@ def train(Model, BatchedInput, hparams):
 
         pbar = reset_pbar()
         last_epoch = trainer.epoch
+        ler = 1
+        min_ler = 1
 
         while True:
             loss, summary = trainer.train(sess)
@@ -105,9 +146,9 @@ def train(Model, BatchedInput, hparams):
                 last_epoch = trainer.epoch
 
             train_cost = loss
-            train_writer.add_summary(summary, trainer.processed_inputs_count)
+            writer.add_summary(summary, trainer.processed_inputs_count)
             pbar.update(1)
-            pbar.set_postfix(cost="%.3f" % (train_cost))
+            pbar.set_postfix(cost="%.3f" % (train_cost), min_ler="%2.1f" % (min_ler * 100), last_ler="%2.1f" % (ler * 100))
 
             if trainer.global_step - last_save_step >= FLAGS.save_steps:
                 path = os.path.join(
@@ -118,12 +159,14 @@ def train(Model, BatchedInput, hparams):
                 # tqdm.write('- Saved to ' + path)
                 last_save_step = trainer.global_step
 
-            if utils.argval("eval", FLAGS):
-                if trainer.global_step - last_eval_pos >= EVAL_STEP:
-                    hparams.beam_width = 0
+            if argval("eval"):
+                if trainer.global_step - last_eval_pos >= FLAGS.eval:
+                    #hparams.beam_width = 0
+                    pbar.set_postfix_str("Evaluating...")
                     ler = trainer.eval_all(sess)
+                    if ler < min_ler: min_ler = ler
                     # tqdm.write("Eval (epoch %d): %.3f" % (trainer.epoch, ler))
-                    eval_writer.add_summary(
+                    writer.add_summary(
                         tf.Summary(value=[tf.Summary.Value(simple_value=ler, tag="label_error_rate")]),
                         trainer.processed_inputs_count)
                     last_eval_pos = trainer.global_step
@@ -134,6 +177,8 @@ def main(unused_argv):
     # hparams.hcopy_path = os.path.join("bin", "htk", "bin.win32", "HCopy.exe")
     hparams.hcopy_config = os.path.join("/n/sd7/trung/config.lmfb.40ch")
     # hparams.hcopy_config = os.path.join("data", "config.lmfb.40ch")
+
+    utils.clear_log()
 
     random_seed = FLAGS.random_seed
     if random_seed is not None and random_seed > 0:

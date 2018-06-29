@@ -16,15 +16,6 @@ class BatchedInput(BaseInputData):
         self.mode = mode
         self.hparams = hparams
 
-        if hparams.input_unit == 'char':
-            chars = [s.strip().split(' ', 1) for s in open('data/vivos/chars.txt', encoding='utf-8')]
-            self.decoder_map = {int(char[0]): char[1] for char in chars}
-            self.num_classes = len(chars)
-        else:
-            words = [s.strip().split(' ', 1) for s in open('data/vivos/words.txt', encoding='utf-8')] 
-            self.decoder_map = {int(word[0]): word[1] for word in words}
-            self.num_classes = len(words)
-
         BaseInputData.__init__(self, hparams, mode)
 
         filenames, targets = [], []
@@ -54,10 +45,8 @@ class BatchedInput(BaseInputData):
         self.targets = tf.placeholder(dtype=tf.string)
 
         src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
-        src_dataset = src_dataset.map(lambda filename:
-                tf.cast(tf.py_func(self.load_input, [filename], tf.float64),
-                    tf.float32))
-        src_dataset = src_dataset.map(lambda feat: (feat, tf.shape(feat)[0]))
+        src_dataset = src_dataset.map(lambda filename: (filename, tf.py_func(self.load_input, [filename], tf.float32)))
+        src_dataset = src_dataset.map(lambda filename, feat: (filename, feat, tf.shape(feat)[0]))
 
         if self.mode == tf.estimator.ModeKeys.PREDICT:
             src_tgt_dataset = src_dataset
@@ -76,31 +65,12 @@ class BatchedInput(BaseInputData):
             src_tgt_dataset,
             self.hparams.batch_size,
             DCT_COEFFICIENT_COUNT,
-            self.hparams.num_buckets, self.mode,
+            #self.hparams.num_buckets,
+            self.mode,
             padding_values=0 if self.hparams.input_unit == "char" else 1
         )
 
         self.iterator = self.batched_dataset.make_initializable_iterator()
-
-    def init_from_wav_files(self, wav_filenames):
-        src_dataset = tf.data.Dataset.from_tensor_slices(wav_filenames)
-        src_dataset = wav_utils.wav_to_features(src_dataset, self.hparams, 40)
-        src_dataset = src_dataset.map(lambda feat: (feat, tf.shape(feat)[0]))
-
-        self.batched_dataset = utils.get_batched_dataset(
-            src_dataset,
-            self.hparams.batch_size,
-            DCT_COEFFICIENT_COUNT,
-            self.hparams.num_buckets, self.mode
-        )
-
-        self.iterator = self.batched_dataset.make_initializable_iterator()
-
-    def load_input(self, filename):
-        return np.load(filename.decode('utf-8') + '.npy').astype(float)
-
-    def extract_target_features(self, str):
-        return [[int(x) for x in str.decode('utf-8').split(' ')]]
 
     def reset_iterator(self, sess, skip=0, shuffle=False):
         filenames = self.input_filenames

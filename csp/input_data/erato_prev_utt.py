@@ -55,7 +55,7 @@ class BatchedInput(BaseInputData):
             src_tgt_dataset.take(10)
 
         self.batched_dataset = src_tgt_dataset.padded_batch(
-            self.hparams.batch_size,
+            self.batch_size,
             padded_shapes=(([], [None, DCT_COEFFICIENT_COUNT], []), [], [],
                            ([None], [])),
             padding_values=(('', 0.0, 0), False, -1, (1, 0))

@@ -27,6 +27,7 @@ class AttentionModel(BaseAttentionModel):
             attention_wrapper_fn=self._attention_wrapper
         )
 
+    '''
     def _attention_wrapper(self,
                  cell,
                  attention_mechanism,
@@ -44,7 +45,9 @@ class AttentionModel(BaseAttentionModel):
             initial_cell_state=initial_cell_state,
             name=name
         )
+    '''
 
+    @classmethod
     def load(self, sess, ckpt, flags):
         #saver = tf.train.Saver()
         #saver.restore(sess, ckpt)

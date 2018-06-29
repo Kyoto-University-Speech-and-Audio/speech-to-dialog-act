@@ -16,6 +16,7 @@ tf.logging.set_verbosity(tf.logging.INFO)
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
 
+    parser.add_argument('--mode', type=str, default="eval")
     parser.add_argument('--config', type=str, default=None)
     parser.add_argument('--dataset', type=str, default="vivos")
     parser.add_argument('--name', type=str, default=None)
@@ -23,6 +24,8 @@ def add_arguments(parser):
     parser.add_argument('--input_unit', type=str, default="char", help="word | char")
     parser.add_argument("--random_seed", type=int, default=None,
                         help="Random seed (>0, set a specific seed).")
+    parser.add_argument('--transfer', type="bool", const=True, nargs="?", default=False,
+                        help="If model needs custom load.")
 
     parser.add_argument('--load', type=str, default=None)
     parser.add_argument("--num_buckets", type=int, default=5,
@@ -40,24 +43,8 @@ def add_arguments(parser):
                         help="Store log/model files.")
 
 
-class ModelWrapper(BaseModelWrapper):
-    def __init__(self, hparams, mode, BatchedInput, Model):
-        super().__init__()
-        self.graph = tf.Graph()
-        self.hparams = hparams
-        with self.graph.as_default():
-            self.batched_input = BatchedInput(hparams, mode)
-            hparams.num_classes = self.batched_input.num_classes
-            self.batched_input.init_dataset()
-            self.iterator = self.batched_input.iterator
-            self.model = Model(
-                hparams,
-                mode=mode,
-                iterator=self.iterator
-            )
-
-def load_model(sess, hparams, flags):
-    #sess.run(tf.global_variables_initializer())
+def load_model(sess, Model, hparams):
+    sess.run(tf.global_variables_initializer())
     #sess.run(tf.tables_initializer())
 
     if hparams.load:
@@ -66,30 +53,11 @@ def load_model(sess, hparams, flags):
         ckpt = tf.train.latest_checkpoint(hparams.out_dir)
 
     if ckpt:
-        var_list = tf.global_variables()
-        for var in var_list:
-            if var.op.name == "Variable_1": var_list.remove(var)
-        saver = tf.train.Saver(var_list)
-        saver.restore(sess, ckpt)
-        '''
-        # for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
-        #   saver_variables.remove(var)
-            var_map = {
-                        #"decoder/decoder_emb_layer/kernel": "decoder/dense/kernel",
-                        #"decoder/decoder_emb_layer/bias": "decoder/dense/bias",
-                    }
-
-                    if var_map:
-                        saver_variables = tf.global_variables()
-                        var_list = {var.op.name: var for var in saver_variables}
-                        for it in var_map:
-                            var_list[var_map[it]] = var_list[it]
-                            del var_list[it]
-                        saver = tf.train.Saver(var_list=var_list)
-                        saver.restore(sess, ckpt)
-                    else:
-                        self.model.saver.restore(sess, ckpt)
-        '''
+        if FLAGS.transfer:
+            Model.load(sess, ckpt, FLAGS)
+        else:
+            saver = tf.train.Saver()
+            saver.restore(sess, ckpt)
 
 def eval(hparams, flags=None):
     tf.reset_default_graph()
@@ -109,7 +77,7 @@ def eval(hparams, flags=None):
         trainer.build_model()
 
         sess = tf.Session(graph=graph)
-        load_model(sess, hparams, flags)
+        load_model(sess, Model, hparams)
         trainer.init(sess)
 
         batched_input.reset_iterator(sess)
@@ -142,7 +110,7 @@ def eval(hparams, flags=None):
                         ' '.join(str_original), sum(lers) / len(lers), ' '.join(str_decoded)), dtype=tf.string))
                     #eval_writer.add_summary(summary, trainer.epoch_exact)
 
-                pbar.update(hparams.batch_size)
+                pbar.update(trainer.batch_size)
                 pbar.set_postfix(ler="%.3f" % (sum(lers) / len(lers)))
             except tf.errors.OutOfRangeError:
                 break

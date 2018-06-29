@@ -22,6 +22,7 @@ class BaseModel(object):
         # self.batch_size = hparams.batch_size
 
         self.batch_size = tf.shape(self.input_seq_len)[0]
+
         if self.train_mode:
             self._build_train_model(hparams, **kwargs)
         elif self.eval_mode:
@@ -39,7 +40,7 @@ class BaseModel(object):
 
     def _build_train_model(self, hparams, **kwargs):
         self.loss = self._build_graph()
-        self.params = self._get_trainable_params(**kwargs)
+        #self.params = self._get_trainable_params(**kwargs)
 
     def _build_eval_model(self):
         self.loss = self._build_graph()
@@ -60,6 +61,7 @@ class BaseModel(object):
     def iterator(self, value):
         self._iterator = value
         self._assign_input()
+        self.batch_size = tf.shape(self.input_seq_len)[0]
 
     def _assign_input(self):
         if self.eval_mode or self.train_mode:
@@ -72,13 +74,15 @@ class BaseModel(object):
     def _build_graph(self):
         pass
 
-    def load(self, sess, ckpt, flags):
+    @classmethod
+    def load(cls, sess, ckpt, flags):
         saver_variables = tf.global_variables()
         #if flags.load_ignore_scope:
         #    for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
         #        saver_variables.remove(var)
 
         var_list = {var.op.name: var for var in saver_variables}
+        del var_list['Variable_1']
 
         var_map = {
             # "decoder/decoder_emb_layer/kernel": "decoder/dense/kernel",
@@ -99,3 +103,7 @@ class BaseModel(object):
 
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
+
+    @classmethod
+    def trainable_variables(cls):
+        return tf.trainable_variables()

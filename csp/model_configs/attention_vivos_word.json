@@ -1,8 +1,24 @@
 {
-    "name": "attention_vivos_word",
-    "model": "attention",
-    "dataset": "vivos",
-    "input_unit": "word",
-    
-    "beam_width": 0
+  "name": "attention_vivos_word",
+  "model": "attention",
+  "dataset": "vivos",
+  "input_unit": "word",
+  "vocab_file": "data/vivos/words.txt",
+  "train_data": "data/vivos/train/data.txt",
+  "eval_data": "data/vivos/test/data.txt",
+  "encoding": "utf-8",
+
+  "batch_size": 32,
+  "beam_width": 0,
+  "eos_index": 1,
+  "sos_index": 2,
+
+  "encoder_type": "bilstm",
+  "encoder_num_units": 512,
+  "decoder_num_units": 256,
+  "attention_num_units": 256,
+  "attention_layer_size": 256,
+  "attention_energy_scale": true,
+
+  "length_penalty_weight": 0.5
 }

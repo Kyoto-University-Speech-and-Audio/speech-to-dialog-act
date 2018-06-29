@@ -24,12 +24,13 @@ class AttentionModel(BaseAttentionModel):
             eval_decode_fn=self._eval_decode_fn
         )
 
-    def load(self, sess, ckpt, flags):
-        saver = tf.train.Saver()
-        saver.restore(sess, ckpt)
-        return
+    @classmethod
+    def load(cls, sess, ckpt, flags):
         saver_variables = tf.global_variables()
         var_list = {var.op.name: var for var in saver_variables}
+
+        del var_list["Variable"]
+        del var_list["Variable_1"]
 
         loaded_kernel = tf.get_variable("loaded_kernel", shape=[1920, 2560])
 
@@ -41,11 +42,11 @@ class AttentionModel(BaseAttentionModel):
             del var_list[var.op.name]
 
             if var.op.name == "decoder/attention_wrapper/basic_lstm_cell/kernel":
-                print(sess.run(tf.pad(loaded_kernel, [[0, 35], [0, 0]])))
-                print(var.get_shape())
-                var = tf.assign(var, tf.pad(loaded_kernel, [[0, 35], [0, 0]]))
+                var = tf.assign(
+                    var,
+                    tf.concat([loaded_kernel[:640], tf.zeros([35, 2560]), loaded_kernel[640:]], axis=0))
 
-            print(sess.run(var))
+            sess.run(var)
 
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
@@ -58,10 +59,12 @@ class AttentionModel(BaseAttentionModel):
             ((self.input_filenames, self.inputs, self.input_seq_len), self.contexts) = self._iterator.get_next()
 
     def _train_decode_fn(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope):
-        self.contexts = tf.tile(tf.expand_dims(self.contexts, axis=1), [1, tf.shape(decoder_inputs)[1], 1])
-        decoder_inputs = tf.concat([decoder_inputs, self.contexts], axis=-1)
         return super()._train_decode_fn_default(decoder_inputs, target_seq_len,
-                initial_state, encoder_outputs, decoder_cell, scope)
+                initial_state, encoder_outputs, decoder_cell, scope, context=self.contexts)
 
-    def _eval_decode_fn(self, encoder_outputs, decoder_cell, scope):
-        return super()._eval_decode_fn_default(encoder_outputs, decoder_cell, scope, context=self.contexts)
+    def _eval_decode_fn(self, initial_state, encoder_outputs, decoder_cell, scope):
+        return super()._eval_decode_fn_default(initial_state, encoder_outputs, decoder_cell, scope, context=self.contexts)
+
+    @classmethod
+    def trainable_variables(cls):
+        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="decoder")
