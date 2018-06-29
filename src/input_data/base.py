@@ -1,20 +1,31 @@
-import tensorflow as tf
-import numpy as np
-from subprocess import call, PIPE
 import os
-from struct import unpack
-from ..utils import wav_utils, utils
 import random
+from struct import unpack
+from subprocess import call, PIPE
+
+import numpy as np
+import tensorflow as tf
 
 DCT_COEFFICIENT_COUNT = 120
 
 class BaseInputData():
-    def __init__(self, hparams, mode):
+    def __init__(self,
+                 hparams,
+                 mode,
+                 mean_val_path=None,
+                 var_val_path=None):
+
         labels = [s.strip().split(' ', 1) for s in open(hparams.vocab_file, encoding=hparams.encoding)]
         self.decoder_map = {int(label[1]): label[0] for label in labels}
         self.num_classes = len(labels)
         self.hparams = hparams
         self.mode = mode
+
+        if mean_val_path is not None:
+            mean = open(mean_val_path).read().split('\n')[:-1]
+            self.mean = np.array([float(x) for x in mean])
+            var = open(var_val_path).read().split('\n')[:-1]
+            self.var = np.array([float(x) for x in var])
 
         hparams.num_classes = self.num_classes
 
@@ -32,11 +43,6 @@ class BaseInputData():
         return DCT_COEFFICIENT_COUNT
 
     def load_wav(self, filename):
-        mean = open("data/aps-sps/mean.dat").read().split('\n')[:-1]
-        mean = np.array([float(x) for x in mean])
-        var = open("data/aps-sps/var.dat").read().split('\n')[:-1]
-        var = np.array([float(x) for x in var])
-
         outfile = "tmp.htk"
         call([
             self.hparams.hcopy_path,
@@ -54,7 +60,7 @@ class BaseInputData():
         dat = dat.byteswap()
         fh.close()
 
-        dat = (dat - mean) / np.sqrt(var)
+        dat = (dat - self.mean) / np.sqrt(self.var)
         fh.close()
 
         return np.float32(dat)
@@ -76,7 +82,6 @@ class BaseInputData():
         return np.load(filename.decode('utf-8')).astype(np.float32)
 
     def load_input(self, filename):
-        # print(filename)
         if os.path.splitext(filename)[1] == b".htk":
             return self.load_htk(filename)
         elif os.path.splitext(filename)[1] == b".wav":
@@ -84,24 +89,11 @@ class BaseInputData():
         elif os.path.splitext(filename)[1] == b".npy":
             return self.load_npy(filename)
 
-    def init_from_wav_files(self, wav_filenames):
-        src_dataset = tf.data.Dataset.from_tensor_slices(wav_filenames)
-        src_dataset = wav_utils.wav_to_features(src_dataset, self.hparams, 40)
-        src_dataset = src_dataset.map(lambda feat: (feat, tf.shape(feat)[0]))
-
-        self.batched_dataset = utils.get_batched_dataset(
-            src_dataset,
-            self.batch_size,
-            self.num_features,
-            self.hparams.num_buckets, self.mode
-        )
-
-        self.iterator = self.batched_dataset.make_initializable_iterator()
-
     def extract_target_features(self, str):
         return [[int(x) for x in str.decode('utf-8').split(' ')]]
 
     def decode(self, d):
+        """Decode from label ids to words"""
         ret = []
         for c in d:
             if c <= 0: continue

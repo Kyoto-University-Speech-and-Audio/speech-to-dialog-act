@@ -3,19 +3,17 @@ import os
 import tensorflow as tf
 import random
 import numpy as np
-import importlib
 import sys
-import time
+from . import configs
 from .utils import utils
 from tqdm import tqdm
-from .eval import eval
-from .models.trainers.multi_gpu_trainer import MultiGPUTrainer
-from .models.trainers.trainer import Trainer
-
+from .trainers.multi_gpu_trainer import MultiGPUTrainer
+from .trainers.trainer import Trainer
 from tensorflow.python import debug as tf_debug
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
+
 
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
@@ -45,6 +43,7 @@ def add_arguments(parser):
     parser.add_argument("--random_seed", type=int, default=None,
                         help="Random seed (>0, set a specific seed).")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size.")
+
 
 def load_model(sess, Model, hparams):
     sess.run(tf.global_variables_initializer())
@@ -91,8 +90,10 @@ def load_model(sess, Model, hparams):
             saver = tf.train.Saver()
             saver.restore(sess, ckpt)
 
+
 def argval(name):
     return utils.argval(name, FLAGS)
+
 
 def train(Model, BatchedInput, hparams):
     hparams.beam_width = 0
@@ -156,27 +157,23 @@ def train(Model, BatchedInput, hparams):
                     "csp.epoch%d.ckpt" % (trainer.epoch))
                 saver = tf.train.Saver()
                 saver.save(sess, path)
-                # tqdm.write('- Saved to ' + path)
                 last_save_step = trainer.global_step
 
             if argval("eval"):
                 if trainer.global_step - last_eval_pos >= FLAGS.eval:
-                    #hparams.beam_width = 0
                     pbar.set_postfix_str("Evaluating...")
                     ler = trainer.eval_all(sess)
                     if ler < min_ler: min_ler = ler
-                    # tqdm.write("Eval (epoch %d): %.3f" % (trainer.epoch, ler))
                     writer.add_summary(
                         tf.Summary(value=[tf.Summary.Value(simple_value=ler, tag="label_error_rate")]),
                         trainer.processed_inputs_count)
                     last_eval_pos = trainer.global_step
 
+
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)
-    hparams.hcopy_path = "/n/sd7/trung/bin/htk/HTKTools/HCopy"
-    # hparams.hcopy_path = os.path.join("bin", "htk", "bin.win32", "HCopy.exe")
-    hparams.hcopy_config = os.path.join("/n/sd7/trung/config.lmfb.40ch")
-    # hparams.hcopy_config = os.path.join("data", "config.lmfb.40ch")
+    hparams.hcopy_path = configs.HCOPY_PATH
+    hparams.hcopy_config = os.path.join(configs.HCOPY_CONFIG_PATH)
 
     utils.clear_log()
 

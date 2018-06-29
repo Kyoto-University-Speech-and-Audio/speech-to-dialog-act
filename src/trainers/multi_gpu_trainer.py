@@ -1,5 +1,5 @@
 import tensorflow as tf
-from ...utils import model_utils, gpu_utils, utils, ops_utils
+from src.utils import model_utils, gpu_utils, utils, ops_utils
 from .trainer import Trainer
 
 MAX_GRADIENT_NORM = 5.0

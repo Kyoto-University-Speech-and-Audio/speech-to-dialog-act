@@ -8,6 +8,7 @@ tmp
 **/*.out
 repos
 bin
-log/
 **/*.DS_Store
-csp/tmp
+src/tmp
+log/
+src/preproc

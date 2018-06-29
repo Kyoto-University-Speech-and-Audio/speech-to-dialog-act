@@ -13,7 +13,10 @@ class BatchedInput(BaseInputData):
     # num_classes = 34331
     
     def __init__(self, hparams, mode):
-        BaseInputData.__init__(self, hparams, mode)
+        BaseInputData.__init__(
+            self, hparams, mode,
+            mean_val_path="data/aps-sps/mean.dat",
+            var_val_path="data/aps-sps/var.dat")
 
         filenames, targets = [], []
         for line in open(self.data_filename, "r"):
@@ -24,14 +27,15 @@ class BatchedInput(BaseInputData):
             else:
                 filename = line.strip()
             filenames.append(filename)
+
         self.size = len(filenames)
         self.input_filenames = filenames
         self.input_targets = targets
 
-    def init_dataset(self):
         self.filenames = tf.placeholder(dtype=tf.string)
         self.targets = tf.placeholder(dtype=tf.string)
 
+    def init_dataset(self):
         src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
         src_dataset = src_dataset.map(lambda filename: (filename, tf.py_func(self.load_input, [filename], tf.float32)))
         src_dataset = src_dataset.map(lambda filename, feat: (filename, feat, tf.shape(feat)[0]))

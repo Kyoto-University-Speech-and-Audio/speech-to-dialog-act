@@ -4,14 +4,14 @@ import random
 import numpy as np
 import tensorflow as tf
 
-from .models.trainers.multi_gpu_trainer import MultiGPUTrainer
-from .models.trainers.trainer import Trainer
+from src.trainers.trainer import Trainer
 from .utils import utils, ops_utils
-from .models.base_model_wrapper import BaseModelWrapper
+from . import configs
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
+
 
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
@@ -58,6 +58,7 @@ def load_model(sess, Model, hparams):
         else:
             saver = tf.train.Saver()
             saver.restore(sess, ckpt)
+
 
 def eval(hparams, flags=None):
     tf.reset_default_graph()
@@ -123,12 +124,11 @@ def eval(hparams, flags=None):
     #    tf.Summary(value=[tf.Summary.Value(simple_value=sum(lers) / len(lers), tag="label_error_rate")]), trainer.epoch_exact)
     #if summary: eval_writer.add_summary(summary, trainer.epoch_exact)
 
+
 def main(unused_argv):
     hparams = utils.create_hparams(FLAGS)
-    hparams.hcopy_path = "/n/sd7/trung/bin/htk/HTKTools/HCopy"
-    # hparams.hcopy_path = os.path.join("bin", "htk", "bin.win32", "HCopy.exe")
-    hparams.hcopy_config = os.path.join("/n/sd7/trung/config.lmfb.40ch")
-    # hparams.hcopy_config = os.path.join("data", "config.lmfb.40ch")
+    hparams.hcopy_path = configs.HCOPY_PATH
+    hparams.hcopy_config = configs.HCOPY_CONFIG_PATH
     
     random_seed = FLAGS.random_seed
     if random_seed is not None and random_seed > 0:

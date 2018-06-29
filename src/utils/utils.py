@@ -1,5 +1,5 @@
 import tensorflow as tf
-
+from .. import configs
 
 def get_batched_input_class(hparams):
     BatchedInput = None
@@ -181,7 +181,7 @@ def create_hparams(flags):
         attention_num_units=128,
 
         # Infer
-        input_path=_argval("input_path") or "/n/sd7/trung/test.txt",
+        input_path=_argval("input_path") or configs.DEFAULT_INFER_INPUT_PATH,
         hcopy_path=None,
         hcopy_config=None,
         length_penalty_weight=0.0,
@@ -190,7 +190,7 @@ def create_hparams(flags):
     )
 
     if flags.config is not None:
-        json = open('csp/model_configs/%s.json' % flags.config).read()
+        json = open('model_configs/%s.json' % flags.config).read()
         hparams.parse_json(json)
 
     hparams.summaries_dir = "log/" + hparams.name
@@ -201,10 +201,10 @@ def create_hparams(flags):
     return hparams
 
 def clear_log(path=None):
-    f = open(path or "log.log", 'w')
+    f = open(path or configs.DEFAULT_LOG_PATH, 'w')
     f.close()
 
 def write_log(text, path=None):
-    f = open(path or "log.log", 'a')
+    f = open(path or configs.DEFAULT_LOG_PATH, 'a')
     f.write('\n'.join(text) + '\n')
     f.close()
