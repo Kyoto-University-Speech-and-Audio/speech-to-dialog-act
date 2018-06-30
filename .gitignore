@@ -11,4 +11,3 @@ bin
 **/*.DS_Store
 src/tmp
 log/
-src/preproc

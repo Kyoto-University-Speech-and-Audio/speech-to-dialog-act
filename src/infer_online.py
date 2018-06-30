@@ -7,6 +7,7 @@ from array import array
 import pyaudio
 import tensorflow as tf
 
+from src.trainers.trainer import Trainer
 from . import configs
 from .utils import utils
 
@@ -19,68 +20,64 @@ def add_arguments(parser):
     parser.add_argument('--config', type=str, default=None)
 
 
-class ModelWrapper:
-    def __init__(self, hparams, mode, BatchedInput, Model):
-        self.graph = tf.Graph()
-        self.hparams = hparams
-        self.BatchedInput = BatchedInput
-        self.mode = mode
+def infer(wavfile, sess, model, batched_input, hparams):
+    hparams.input_path = os.path.join("tmp", "input.tmp")
+    with open(hparams.input_path, "w") as f:
+        f.write(wavfile)
+    batched_input.reset_iterator(sess)
+    with graph.as_default():
+        while True:
+            try:
+                sample_ids, _ = model.infer(sess)
 
-        with self.graph.as_default():
-            self.batched_input = BatchedInput(hparams, mode)
-            self.batched_input.init_dataset()
-            self.iterator = self.batched_input.iterator
-            self.model = Model(
-                hparams,
-                mode=mode,
-                iterator=self.iterator
-            )
+                for i in range(len(sample_ids)):
+                    # str_original = BatchedInput.decode(target_labels[i])
+                    str_decoded = batched_input.decode(sample_ids[i])
 
-    def load_model(self, sess, name):
-        latest_ckpt = tf.train.latest_checkpoint(self.hparams.out_dir)
-        if latest_ckpt:
-            self.model.saver.restore(sess, latest_ckpt)
-            sess.run(tf.tables_initializer())
-            global_step = self.model.global_step.eval(session=sess)
-            return global_step
+                    # print('Original: %s' % str_original)
+                    print(' -> Result:\n\t\t%s' % "".join(str_decoded))
+            except tf.errors.OutOfRangeError:
+                return
 
-    def infer(self, wavfile, sess):
-        self.hparams.input_path = os.path.join("tmp", "input.tmp")
-        with open(self.hparams.input_path, "w") as f:
-            f.write(wavfile)
-        self.batched_input.reset_iterator(sess)
-        with self.graph.as_default():
-            while True:
-                try:
-                    sample_ids, _ = self.model.infer(sess)
 
-                    for i in range(len(sample_ids)):
-                        # str_original = BatchedInput.decode(target_labels[i])
-                        str_decoded = self.batched_input.decode(sample_ids[i])
+def load_model(sess, Model, hparams):
+    sess.run(tf.global_variables_initializer())
+    #sess.run(tf.tables_initializer())
 
-                        # print('Original: %s' % str_original)
-                        print(' -> Result:\n\t\t%s' % "".join(str_decoded))
-                except tf.errors.OutOfRangeError:
-                    return
+    if hparams.load:
+        ckpt = os.path.join(hparams.out_dir, "csp.%s.ckpt" % hparams.load)
+    else:
+        ckpt = tf.train.latest_checkpoint(hparams.out_dir)
 
+    if ckpt:
+        if FLAGS.transfer:
+            Model.load(sess, ckpt, FLAGS)
+        else:
+            saver = tf.train.Saver()
+            saver.restore(sess, ckpt)
 
 def load(Model, BatchedInput, hparams):
-    infer_model = ModelWrapper(
-        hparams,
-        tf.estimator.ModeKeys.PREDICT,
-        BatchedInput, Model
-    )
+    tf.reset_default_graph()
+    graph = tf.Graph()
+    mode = tf.estimator.ModeKeys.PREDICT
 
-    infer_sess = tf.Session(graph=infer_model.graph)
+    with graph.as_default():
+        batched_input = BatchedInput(hparams, mode)
+        batched_input.init_dataset()
 
-    with infer_model.graph.as_default():
-        global_step = infer_model.load_model(
-            infer_sess, "infer"
-        )
+        trainer = Trainer(hparams, Model, BatchedInput, mode)
+        trainer.build_model()
+
+        sess = tf.Session(graph=graph)
+        load_model(sess, Model, hparams)
+        trainer.init(sess)
+
+        batched_input.reset_iterator(sess)
+
         hparams.input_path = "none"
-        infer_model.batched_input.reset_iterator(infer_sess)
+        batched_input.reset_iterator(sess)
 
-    return infer_sess, infer_model, global_step
+    return sess, trainer, batched_input
 
 
 def record(filename):
@@ -164,7 +161,7 @@ def main(unused_argv):
     hparams.input_path = os.path.join("tmp", "input.tmp")
     BatchedInput = utils.get_batched_input_class(hparams)
     Model = utils.get_model_class(hparams)
-    sess, model, _ = load(Model, BatchedInput, hparams)
+    sess, trainer, batched_input = load(Model, BatchedInput, hparams)
 
     os.system('cls')
 
@@ -175,7 +172,7 @@ def main(unused_argv):
         # infer(hparams)
         # record()
         print("Inferring...", end="\r")
-        model.infer("test.wav", sess)
+        infer("test.wav", sess, trainer.eval_model, batched_input, hparams)
 
 
 if __name__ == "__main__":

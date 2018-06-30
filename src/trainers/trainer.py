@@ -131,6 +131,15 @@ class Trainer(object):
         ])
         return input_filenames, target_labels, sample_ids, summary
 
+    def infer(self, sess):
+        input_filenames, sample_ids, loss, summary, _ = sess.run([
+            self.eval_model.input_filenames,
+            self.eval_model.sample_id,
+            self.eval_model.loss, self._eval_summary,
+            self.eval_model.get_extra_ops()
+        ])
+        return input_filenames, target_labels, sample_ids, summary
+
     def eval_all(self, sess):
         lers = []
         self._batched_input_eval.reset_iterator(sess)

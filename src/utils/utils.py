@@ -89,7 +89,7 @@ def get_batched_dataset_bucket(dataset, batch_size, coef_count, num_buckets, mod
     def batching_func_infer(x):
         return x.padded_batch(
             batch_size,
-            padded_shapes=([None, coef_count], []))
+            padded_shapes=([], [None, coef_count], []))
 
     if num_buckets > 1:
         def key_func(src, tgt):
@@ -100,7 +100,7 @@ def get_batched_dataset_bucket(dataset, batch_size, coef_count, num_buckets, mod
             bucket_id = tf.maximum(src[2] // bucket_width, tgt[1] // bucket_width)
             return tf.to_int64(tf.minimum(num_buckets, bucket_id))
 
-        def key_func_infer(src, src_len):
+        def key_func_infer(fn, src, src_len):
             bucket_width = 10
 
             # Bucket sentence pairs by the length of their source sentence and target
@@ -136,13 +136,13 @@ def create_hparams(flags):
         return argval(name, flags)
 
     hparams = tf.contrib.training.HParams(
-        model=flags.model,
-        dataset=flags.dataset,
-        name=flags.name,
-        input_unit=flags.input_unit,
+        model=_argval('model'),
+        dataset=_argval('dataset'),
+        name=_argval('name'),
+        input_unit=_argval('input_unit'),
 
-        batch_size=flags.batch_size,
-        eval_batch_size=flags.batch_size,
+        batch_size=_argval('batch_size') or 32,
+        eval_batch_size=_argval('batch_size') or 32,
         num_buckets=5,
 
         sample_rate=16000,
@@ -188,7 +188,7 @@ def create_hparams(flags):
         hcopy_config=None,
         length_penalty_weight=0.0,
 
-        load=flags.load
+        load=_argval('load')
     )
 
     if flags.config is not None:
