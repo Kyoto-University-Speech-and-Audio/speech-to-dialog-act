@@ -140,6 +140,7 @@ def create_hparams(flags):
         dataset=_argval('dataset'),
         name=_argval('name'),
         input_unit=_argval('input_unit'),
+        verbose=_argval('verbose') or False,
 
         batch_size=_argval('batch_size') or 32,
         eval_batch_size=_argval('batch_size') or 32,
@@ -181,6 +182,7 @@ def create_hparams(flags):
         attention_layer_size=128,
         attention_energy_scale=False,
         attention_num_units=128,
+        output_attention=False,
 
         # Infer
         input_path=_argval("input_path") or configs.DEFAULT_INFER_INPUT_PATH,

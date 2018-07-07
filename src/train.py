@@ -19,10 +19,11 @@ def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
 
     parser.add_argument('--mode', type=str, default="train")
+    parser.add_argument('--verbose', type="bool", const=True, nargs="?", default=False)
     parser.add_argument('--reset', type="bool", const=True, nargs="?", default=False,
                         help="No saved model loaded")
     parser.add_argument('--debug', type="bool", const=True, nargs="?", default=False)
-    parser.add_argument('--eval', type=int, const=True, nargs="?", default=0,
+    parser.add_argument('--eval', type=int, default=1000,
                         help="Frequently check and log evaluation result")
     parser.add_argument('--gpus', type="bool", const=True, nargs="?", default=False,
                         help="Use MultiGPUTrainer")
@@ -141,6 +142,7 @@ def train(Model, BatchedInput, hparams):
 
         while True:
             loss, summary = trainer.train(sess)
+            utils.write_log(["abc"])
 
             if trainer.epoch > last_epoch:
                 pbar = reset_pbar()
@@ -159,7 +161,7 @@ def train(Model, BatchedInput, hparams):
                 saver.save(sess, path)
                 last_save_step = trainer.global_step
 
-            if argval("eval"):
+            if argval("eval") > 0:
                 if trainer.global_step - last_eval_pos >= FLAGS.eval:
                     pbar.set_postfix_str("Evaluating...")
                     ler = trainer.eval_all(sess)

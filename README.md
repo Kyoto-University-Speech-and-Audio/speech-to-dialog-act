@@ -24,7 +24,7 @@ where `<path_to_audio_file>` can by `wav`, `htk` or `npy` file that contains ori
 
 If you use `wav`, path to HTK Speech Recognition Toolkit binary file must be provided in source code.
 
-A vocabulary files must also be prepared with each line contains `<word> <id>`. See below for model configurations.
+A vocabulary files must also be prepared with each line represented as `<word> <id>`. See below for model configurations.
 
 # Training Examples
 
@@ -108,11 +108,31 @@ Default behaviour is training from last saved model. These method can be used fo
 
 `--eval` (default: 1000): accuracy on test set will be calculated and written to tensorboard after each specified number of steps. Useful for checking for performance or attention alignments
 
+## Others
+
+`--verbose`: print debug information
+
+`--debug`: run with tensorflow's debug mode
+
 # Customizing for experiments
 
-New model should be subclassed form `BaseModel`, which handles loading hyper-parameters.
+New model should be subclassed from `BaseModel`, which handles loading hyper-parameters.
 
 `AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional parts or values by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
+
+# Scripts
+
+To run trainer in background
+
+`./bin/train` will run trainer in background with nohup, which means your process will not be attached to terminal window
+
+Example:
+
+```
+./bin/train 0,1 --config=attention_swb_word --gpus
+```
+
+will train SwitchBoard speech corpus on two GPUs 0 and 1
 
 # Result on large-scale dataset
 

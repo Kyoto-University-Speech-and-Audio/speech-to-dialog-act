@@ -3,22 +3,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-#from .base_multi_gpus import MultiGPUBaseModel as BaseModel
+# from .base_multi_gpus import MultiGPUBaseModel as BaseModel
 from .base import BaseModel
-import matplotlib as mpl
-mpl.use('Agg')
-import matplotlib.pyplot as plt
 
 import tensorflow as tf
-import numpy as np
-import os
 
 from tensorflow.python.layers import core as layers_core
-from .attentions.location_based_attention import LocationBasedAttention
 
 from six.moves import xrange as range
 
-from ..utils import ops_utils, model_utils
+from ..utils import model_utils
 from tensorflow.contrib.seq2seq import BeamSearchDecoder
 
 from .helpers.basic_context_decoder import BasicContextDecoder
@@ -30,26 +24,21 @@ max_gradient_norm = 5.0
 
 class AttentionModel(BaseModel):
     def __init__(self,
-                 attention_fn=None,
                  beam_search_decoder_cls=BeamSearchDecoder,
                  train_decode_fn=None,
                  eval_decode_fn=None,
-                 attention_wrapper_fn=tf.contrib.seq2seq.AttentionWrapper,
                  greedy_embedding_helper_fn=tf.contrib.seq2seq.GreedyEmbeddingHelper):
         super().__init__()
-        self._attention_fn = attention_fn or self._attention_fn_default
         self._beam_search_decoder_cls = beam_search_decoder_cls
         self._train_decode_fn = train_decode_fn or self._train_decode_fn_default
         self._eval_decode_fn = eval_decode_fn or self._eval_decode_fn_default
-        self._attention_wrapper_fn = attention_wrapper_fn
-        self._attention_cell = None
         self._greedy_embedding_helper_fn = greedy_embedding_helper_fn
 
     def __call__(self, hparams, mode, iterator, **kwargs):
         BaseModel.__call__(self, hparams, mode, iterator, **kwargs)
 
         if self.infer_mode or self.eval_mode:
-            attention_summary = self._get_attention_summary()
+            attention_summary = None
             if attention_summary is not None:
                 self.summary = tf.summary.merge([attention_summary])
             else:
@@ -102,7 +91,6 @@ class AttentionModel(BaseModel):
             return tf.reduce_mean(cross_ent * target_weights)
 
     def _build_encoder(self):
-        #if True:
         with tf.variable_scope('encoder') as encoder_scope:
             if self.hparams.encoder_type == 'bilstm':
                 cells_fw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
@@ -122,27 +110,12 @@ class AttentionModel(BaseModel):
                 print(state)
                 return outputs, state
 
-    def _get_attention_cell(self, decoder_cell, encoder_outputs):
-        if self._attention_cell is not None: return self._attention_cell
-        attention_mechanism = self._attention_fn(encoder_outputs)
-
-        cell = self._attention_wrapper_fn(
-            decoder_cell, attention_mechanism,
-            attention_layer_size=self.hparams.attention_layer_size,
-            alignment_history=not self.train_mode and self.hparams.beam_width == 0,
-            output_attention=self.hparams.output_attention
-        )
-        self._attention_cell = cell
-        return cell
-
     def _train_decode_fn_default(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope, context=None):
-        self._attention_cell = self._get_attention_cell(decoder_cell, encoder_outputs)
-
         if initial_state is None:
-            initial_state = self._attention_cell.zero_state(self.batch_size, dtype=tf.float32)
+            initial_state = decoder_cell.zero_state(self.batch_size, dtype=tf.float32)
 
         helper = tf.contrib.seq2seq.TrainingHelper(decoder_inputs, target_seq_len)
-        decoder = BasicContextDecoder(self._attention_cell, helper, initial_state, context=context)
+        decoder = BasicContextDecoder(decoder_cell, helper, initial_state, context=context)
 
         outputs, final_state, final_output_lengths = tf.contrib.seq2seq.dynamic_decode(
             decoder, swap_memory=True,
@@ -160,17 +133,15 @@ class AttentionModel(BaseModel):
         else:
             batch_size = self.batch_size
 
-        self._get_attention_cell(decoder_cell, encoder_outputs)
-
         if initial_state == None:
-            initial_state = self._attention_cell.zero_state(batch_size, dtype=tf.float32)
+            initial_state = decoder_cell.zero_state(batch_size, dtype=tf.float32)
 
         def embed_fn(ids):
             return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.num_classes))
 
         if self.hparams.beam_width > 0:
             decoder = self._beam_search_decoder_cls(
-                self._attention_cell,
+                decoder_cell,
                 embed_fn,
                 start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
                 end_token=self.hparams.eos_index,
@@ -196,7 +167,7 @@ class AttentionModel(BaseModel):
                 )
 
             decoder = BasicContextDecoder(
-                self._attention_cell,
+                decoder_cell,
                 helper,
                 initial_state,
                 context=context,
@@ -210,14 +181,6 @@ class AttentionModel(BaseModel):
             scope=scope)
 
         return outputs, final_context_state, final_sequence_lengths
-
-    def _attention_fn_default(self, encoder_outputs):
-        return LocationBasedAttention(
-            self.hparams.attention_num_units,
-            encoder_outputs,
-            memory_sequence_length=self.input_seq_len,
-            scale=self.hparams.attention_energy_scale
-        )
 
     def _get_decoder_cell(self):
         self._decoder_cell = model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode)
@@ -265,57 +228,3 @@ class AttentionModel(BaseModel):
 
     def get_extra_ops(self):
         return tf.no_op()
-
-    def eval(self, sess):
-        input_filenames, target_labels, input_seq_len, loss, sample_ids, summary, images = sess.run([
-            self.input_filenames,
-            self.target_labels,
-            self.input_seq_len,
-            self.loss,
-            self.sample_id,
-            self.summary, self.attention_images
-        ])
-
-        if images is not None:
-            for i in range(len(input_filenames)):
-                id = os.path.basename(input_filenames[i].decode('utf-8')).split('.')[0]
-                img = (1 - images[i]) * 255
-                target_seq_len = np.where(sample_ids[i] == 1)[0][0] if len(np.where(sample_ids[i] == 1)[0]) > 0 else -1
-                img = img[:target_seq_len, :input_seq_len[i]]
-                fig = plt.figure(figsize=(20, 2))
-                ax = fig.add_subplot(111)
-                ax.imshow(img, aspect="auto")
-                ax.set_title(id)
-                ax.set_yticks(np.arange(0, target_seq_len, 5))
-                fig.savefig(os.path.join(self.hparams.summaries_dir, "alignments", id + ".png"))
-                plt.close()
-
-        return input_filenames, target_labels[:, 1:-1], sample_ids, summary
-
-    def infer(self, sess):
-        sample_ids, summary = sess.run([
-            self.sample_id, self.summary
-        ])
-
-        return sample_ids, summary
-
-    def _get_attention_summary(self):
-        return None
-        self.attention_images = tf.no_op()
-        if self.hparams.beam_width > 0: return None
-        attention_images = self.final_context_state.alignment_history.stack()  # max_len * batch_size * T
-        attention_images = tf.transpose(attention_images, [1, 0, 2])
-        self.attention_images = attention_images
-
-        return None
-        inferred_labels = self.sample_id[0, :]
-        indices = tf.where(tf.not_equal(inferred_labels, tf.constant(1, inferred_labels.dtype)))
-        attention_images = attention_images[:self.input_seq_len[0], :tf.shape(indices)[0]]
-        attention_images = tf.expand_dims(attention_images, 0)
-        return None
-        attention_images = tf.expand_dims(tf.transpose(attention_images, [0, 2, 1]),
-                                          -1)  # batch_size * max_len * # T * 1
-        attention_images = 1 - attention_images
-        attention_images *= 255
-        attention_summary = tf.summary.image("attention_images", attention_images, max_outputs=1)
-        return attention_summary

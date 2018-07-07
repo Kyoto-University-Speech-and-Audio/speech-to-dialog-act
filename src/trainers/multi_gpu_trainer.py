@@ -46,7 +46,7 @@ class MultiGPUTrainer(Trainer):
                             tower_grads.append(zip(grads, vars))
                         losses.append(loss)
                     outer_scope.reuse_variables()
-                self.train_model = model
+                self._train_model = model
                 self.params = model.trainable_variables()
 
             with tf.name_scope("apply_gradients"), tf.device(controller):
@@ -86,14 +86,19 @@ class MultiGPUTrainer(Trainer):
 
     def train(self, sess):
         try:
-            self.processed_inputs_count, _, loss, _, summary, _ = sess.run([
+            self.processed_inputs_count, inputs, _, loss, _, summary, _ = sess.run([
                 self._processed_inputs_count,
+                self._train_model.inputs,
                 self.update,
                 self.loss,
                 self._global_step,
                 self._summary,
                 self.increment_inputs_count
             ])
+            if self.hparams.verbose:
+                print("\nprocessed_inputs_count:", self.processed_inputs_count)
+                print("input_size:", len(inputs[0]))
+                print("input_size:", len(inputs[1]))
         except tf.errors.OutOfRangeError:
             self.processed_inputs_count, _ = \
                 sess.run([self._processed_inputs_count, self.increment_inputs_count])

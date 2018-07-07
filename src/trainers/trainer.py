@@ -70,7 +70,7 @@ class Trainer(object):
                 tf.summary.scalar("learning_rate", self.learning_rate),
             ])
 
-            self.train_model = model
+            self._train_model = model
 
         if eval or self.eval_mode:
             with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -104,16 +104,28 @@ class Trainer(object):
                                         param.op.device))
 
     def train(self, sess):
+        utils.write_log("abcdef")
         try:
-            self.processed_inputs_count, _, loss, _, summary, _, _= sess.run([
+            self.processed_inputs_count, inputs, targets, input_seq_len, target_seq_len, _, loss, _, summary, _, _= sess.run([
                 self._processed_inputs_count,
+                self._train_model.inputs,
+                self._train_model.targets,
+                self._train_model.input_seq_len,
+                self._train_model.target_seq_len,
                 self.update,
                 self.loss,
                 self._global_step,
                 self._summary,
                 self.increment_inputs_count,
-                self.train_model.get_extra_ops(),
+                self._train_model.get_extra_ops(),
             ])
+            if self.hparams.verbose:
+                print("\nprocessed_inputs_count: %d, global_step: %d" % (self.processed_inputs_count, self.global_step))
+                print("batch_size: %d, input_size: %d" % (len(inputs), len(inputs[0])))
+                print("input_seq_len", input_seq_len)
+                print("target_seq_len", target_seq_len)
+                print("target_size: %d" % (len(targets[0])))
+
         except tf.errors.OutOfRangeError:
             self.processed_inputs_count, _ = \
                 sess.run([self._processed_inputs_count, self.increment_inputs_count])

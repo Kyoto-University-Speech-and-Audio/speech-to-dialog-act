@@ -4,7 +4,6 @@ from __future__ import division
 from __future__ import print_function
 
 from .attention import AttentionModel as BaseAttentionModel
-from .cells.CLSTMCell import CLSTMCell
 
 """Example soft monotonic alignment decoder implementation.
 This file contains an example TensorFlow implementation of the approach
