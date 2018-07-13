@@ -1,0 +1,22 @@
+{
+  "name": "attention_swb_word",
+  "model": "attention",
+  "dataset": "swbd",
+  "input_unit": "word",
+  "vocab_file": "data/swbd/vocab/word_freq5_300h.txt",
+  "train_data": "data/swbd/inputs_baseline_train.txt",
+  "eval_data": "data/swbd/inputs_baseline_test.txt",
+  "learning_rate": 1e-3,
+  "batch_size": 4,
+
+  "encoder_type": "pbilstm",
+  "encoder_num_units": 640,
+  "decoder_num_units": 640,
+  "attention_num_units": 640,
+  "attention_layer_size": 128,
+  "output_attention": true,
+
+  "beam_width": 0,
+  "length_penalty_weight": 0.5,
+  "max_gradient_norm": 5.0
+}

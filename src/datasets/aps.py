@@ -25,9 +25,6 @@ class BatchedInput(BaseInputData):
         self.size = len(inputs)
         self.inputs = inputs
 
-        self.filenames = tf.placeholder(dtype=tf.string)
-        self.targets = tf.placeholder(dtype=tf.string)
-
     def init_dataset(self):
         src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
         src_dataset = src_dataset.map(lambda filename: (filename, tf.py_func(self.load_input, [filename], tf.float32)))
@@ -43,19 +40,14 @@ class BatchedInput(BaseInputData):
 
             src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
 
-        if self.mode == tf.estimator.ModeKeys.PREDICT:
-            src_tgt_dataset.take(10)
-
-        self.batched_dataset = utils.get_batched_dataset_bucket(
-            src_tgt_dataset,
-            self.hparams.batch_size,
-            self.hparams.num_features,
-            self.hparams.num_buckets,
-            self.mode,
-            padding_values=0 if self.hparams.input_unit == "char" else 1
-        )
-
+        self.batched_dataset = self.get_batched_dataset(src_tgt_dataset)
         self.iterator = self.batched_dataset.make_initializable_iterator()
+
+    def get_word(self, id):
+        if self.hparams.input_unit == "word":
+            return self.decoder_map[id].split('+')[0]
+        else:
+            return self.decoder_map[id]
 
     def reset_iterator(self, sess, skip=0, shuffle=False, bucket_size=None):
         if shuffle: inputs = self.shuffle(self.inputs, bucket_size)

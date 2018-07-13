@@ -6,6 +6,7 @@
   "vocab_file": "data/aps-sps/word.id",
   "train_data": "data/aps-sps/train/word_sort_xlen.txt",
   "eval_data": "data/aps-sps/test/word_targets.txt",
+  "learning_rate": 1e-4,
 
   "batch_size": 32,
 

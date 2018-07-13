@@ -5,6 +5,7 @@ from subprocess import call, PIPE
 
 import numpy as np
 import tensorflow as tf
+from ..utils import utils
 
 class BaseInputData():
     def __init__(self,
@@ -12,12 +13,9 @@ class BaseInputData():
                  mode,
                  mean_val_path=None,
                  var_val_path=None):
-
-        labels = [s.strip().split(' ', 1) for s in open(hparams.vocab_file, encoding=hparams.encoding)]
-        self.decoder_map = {int(label[1]): label[0] for label in labels}
-        self.num_classes = len(labels)
         self.hparams = hparams
         self.mode = mode
+        self.load_vocab(hparams.vocab_file)
 
         if mean_val_path is not None:
             mean = open(mean_val_path).read().split('\n')[:-1]
@@ -35,6 +33,24 @@ class BaseInputData():
             self.batch_size = hparams.eval_batch_size
         else:
             self.data_filename = hparams.input_path
+
+        self.filenames = tf.placeholder(dtype=tf.string)
+        self.targets = tf.placeholder(dtype=tf.string)
+
+    def load_vocab(self, vocab_file):
+        labels = [s.strip().split(' ', 1) for s in open(vocab_file, encoding=self.hparams.encoding)]
+        self.decoder_map = {int(label[1]): label[0] for label in labels}
+        self.num_classes = len(labels)
+
+    def get_batched_dataset(self, dataset):
+        return utils.get_batched_dataset(
+            dataset,
+            self.hparams.batch_size,
+            self.hparams.num_features,
+            #self.hparams.num_buckets,
+            self.mode,
+            padding_values=self.hparams.eos_index
+        )
 
     def load_wav(self, filename):
         outfile = "tmp.htk"
@@ -86,19 +102,18 @@ class BaseInputData():
     def extract_target_features(self, str):
         return [[int(x) for x in str.decode('utf-8').split(' ')]]
 
+    def get_word(self, id):
+        return self.decoder_map[id]
+
     def decode(self, d):
         """Decode from label ids to words"""
         ret = []
         for c in d:
-            if c <= 0: continue
-            if self.hparams.input_unit == "word":
-                if c == 1: return ret # sos
+            if c <= 0: continue    
+            if self.decoder_map[c] == '<eos>': return ret # sos
             # ret += str(c) + " "
             if self.decoder_map[c] == '<sos>': continue
-            if self.hparams.input_unit == "word":
-                val = self.decoder_map[c].split('+')[0]
-            else:
-                val = self.decoder_map[c]
+            val = self.get_word(c)
             ret.append(val if c in self.decoder_map else '?')
         return ret
 

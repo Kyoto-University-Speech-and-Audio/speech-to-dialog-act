@@ -34,7 +34,6 @@ class AttentionModel(BaseModel):
                  beam_search_decoder_cls=BeamSearchDecoder,
                  train_decode_fn=None,
                  eval_decode_fn=None,
-                 output_attention=True,
                  attention_wrapper_fn=tf.contrib.seq2seq.AttentionWrapper,
                  greedy_embedding_helper_fn=tf.contrib.seq2seq.GreedyEmbeddingHelper):
         super().__init__()
@@ -42,7 +41,6 @@ class AttentionModel(BaseModel):
         self._beam_search_decoder_cls = beam_search_decoder_cls
         self._train_decode_fn = train_decode_fn or self._train_decode_fn_default
         self._eval_decode_fn = eval_decode_fn or self._eval_decode_fn_default
-        self._output_attention = output_attention
         self._attention_wrapper_fn = attention_wrapper_fn
         self._attention_cell = None
         self._greedy_embedding_helper_fn = greedy_embedding_helper_fn
@@ -104,8 +102,44 @@ class AttentionModel(BaseModel):
             return tf.reduce_mean(cross_ent * target_weights)
 
     def _build_encoder(self):
-        if True:
-        #with tf.variable_scope('encoder') as encoder_scope:
+        #if True:
+        with tf.variable_scope('encoder') as encoder_scope:
+            if self.hparams.encoder_type == 'pbilstm':
+                cells_fw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
+                            range(self.hparams.num_encoder_layers)]
+                cells_bw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
+                            range(self.hparams.num_encoder_layers)]
+
+                prev_layer = self.inputs
+                prev_seq_len = self.input_seq_len
+
+                with tf.variable_scope("stack_p_bidirectional_rnn"):
+                    state_fw = state_bw = None
+                    for i, (cell_fw, cell_bw) in enumerate(zip(cells_fw, cells_bw)):
+                        initial_state_fw = None
+                        initial_state_bw = None
+                        with tf.variable_scope("cell_%d" % i):
+                            outputs, (state_fw, state_bw) = tf.nn.bidirectional_dynamic_rnn(
+                                cell_fw,
+                                cell_bw,
+                                prev_layer,
+                                initial_state_fw=initial_state_fw,
+                                initial_state_bw=initial_state_bw,
+                                sequence_length=prev_seq_len,
+                                dtype=tf.float32
+                            )
+                            # Concat the outputs to create the new input.
+                            prev_layer = tf.concat(outputs, axis=2)
+
+                            if i != self.hparams.num_encoder_layers - 1:
+                                size = tf.cast(tf.floor(tf.shape(prev_layer)[1] / 2), tf.int32)
+                                prev_layer = prev_layer[:, :size * 2, :]
+                                prev_layer = tf.reshape(prev_layer, [tf.shape(prev_layer)[0], size, self.hparams.encoder_num_units * 2])
+                                prev_seq_len = tf.cast(tf.floor(prev_seq_len / 2), tf.int32)
+                        #states_fw.append(state_fw)
+                        #states_bw.append(state_bw)
+
+                return prev_layer, tf.concat([state_fw, state_bw], -1)
             if self.hparams.encoder_type == 'bilstm':
                 cells_fw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
                             range(self.hparams.num_encoder_layers)]
@@ -132,7 +166,7 @@ class AttentionModel(BaseModel):
             decoder_cell, attention_mechanism,
             attention_layer_size=self.hparams.attention_layer_size,
             alignment_history=not self.train_mode and self.hparams.beam_width == 0,
-            output_attention=self._output_attention
+            output_attention=self.hparams.output_attention
         )
         self._attention_cell = cell
         return cell
@@ -293,13 +327,6 @@ class AttentionModel(BaseModel):
                 plt.close()
 
         return input_filenames, target_labels[:, 1:-1], sample_ids, summary
-
-    def infer(self, sess):
-        sample_ids, summary = sess.run([
-            self.sample_id, self.summary
-        ])
-
-        return sample_ids, summary
 
     def _get_attention_summary(self):
         return None

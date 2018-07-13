@@ -8,6 +8,7 @@
   "eval_data": "data/aps-sps/test/word_targets.txt",
 
   "batch_size": 32,
+  "learning_rate": 1e-4,
 
   "eos_index": 1,
   "sos_index": 2,

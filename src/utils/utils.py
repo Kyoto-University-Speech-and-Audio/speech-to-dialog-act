@@ -10,6 +10,8 @@ def get_batched_input_class(hparams):
         from ..datasets.vctk import BatchedInput
     elif hparams.dataset == 'aps':
         from ..datasets.aps import BatchedInput
+    elif hparams.dataset == 'swbd':
+        from ..datasets.swbd import BatchedInput
     elif hparams.dataset == 'aps-word':
         from ..datasets.aps import BatchedInput
     elif hparams.dataset == 'erato':
@@ -140,6 +142,7 @@ def create_hparams(flags):
         dataset=_argval('dataset'),
         name=_argval('name'),
         input_unit=_argval('input_unit'),
+        verbose=_argval('verbose') or False,
 
         batch_size=_argval('batch_size') or 32,
         eval_batch_size=_argval('batch_size') or 32,
@@ -165,6 +168,7 @@ def create_hparams(flags):
 
         learning_rate=_argval("learning_rate") or 1e-3,
         optimizer="adam",
+        max_gradient_norm=5.0,
 
         # Data
         vocab_file=None,
@@ -181,6 +185,7 @@ def create_hparams(flags):
         attention_layer_size=128,
         attention_energy_scale=False,
         attention_num_units=128,
+        output_attention=False,
 
         # Infer
         input_path=_argval("input_path") or configs.DEFAULT_INFER_INPUT_PATH,
@@ -188,7 +193,8 @@ def create_hparams(flags):
         hcopy_config=None,
         length_penalty_weight=0.0,
 
-        load=_argval('load')
+        load=_argval('load'),
+        shuffle=_argval('shuffle')
     )
 
     if flags.config is not None:
