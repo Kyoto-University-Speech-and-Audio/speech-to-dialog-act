@@ -11,6 +11,7 @@ class BaseInputData():
     def __init__(self,
                  hparams,
                  mode,
+                 dev=False,
                  mean_val_path=None,
                  var_val_path=None):
         self.hparams = hparams
@@ -26,16 +27,29 @@ class BaseInputData():
         hparams.num_classes = self.num_classes
 
         if self.mode == tf.estimator.ModeKeys.TRAIN:
-            self.data_filename = hparams.train_data
+            self.data_filename = hparams.train_data 
             self.batch_size = hparams.batch_size
         elif self.mode == tf.estimator.ModeKeys.EVAL:
-            self.data_filename = hparams.eval_data
+            self.data_filename = hparams.test_data if not dev else hparams.dev_data
             self.batch_size = hparams.eval_batch_size
         else:
             self.data_filename = hparams.input_path
 
         self.filenames = tf.placeholder(dtype=tf.string)
         self.targets = tf.placeholder(dtype=tf.string)
+        
+        inputs = []
+        with open(self.data_filename, "r") as f:
+            headers = f.readline().split('\t')
+            for line in f.read().split('\n')[1:]:
+                if self.mode != tf.estimator.ModeKeys.PREDICT:
+                    if line.strip() == "": continue
+                    input = { headers[i]: dat for i, dat in enumerate(line.strip().split('\t')) } 
+                    if 'target' in input: input['target'] = "%d %s %d" % (self.hparams.sos_index, input['target'], self.hparams.eos_index)
+                    inputs.append(input)
+
+        self.size = len(inputs)
+        self.inputs = inputs
 
     def load_vocab(self, vocab_file):
         labels = [s.strip().split(' ', 1) for s in open(vocab_file, encoding=self.hparams.encoding)]
@@ -89,7 +103,8 @@ class BaseInputData():
         return dat
 
     def load_npy(self, filename):
-        return np.load(filename.decode('utf-8')).astype(np.float32)
+        dat = np.load(filename.decode('utf-8')).astype(np.float32)
+        return dat
 
     def load_input(self, filename):
         if os.path.splitext(filename)[1] == b".htk":
@@ -98,6 +113,8 @@ class BaseInputData():
             return self.load_wav(filename)
         elif os.path.splitext(filename)[1] == b".npy":
             return self.load_npy(filename)
+        else:
+            return np.array([[0.0] * 120] * 8).astype(np.float32)
 
     def extract_target_features(self, str):
         return [[int(x) for x in str.decode('utf-8').split(' ')]]

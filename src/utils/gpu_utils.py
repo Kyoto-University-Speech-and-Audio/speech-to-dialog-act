@@ -13,7 +13,6 @@ def get_available_gpus():
 
 
 def assign_to_device(device, ps_device):
-    print(device, ps_device)
     """Returns a function to place variables on the ps_device.
 
     Args:

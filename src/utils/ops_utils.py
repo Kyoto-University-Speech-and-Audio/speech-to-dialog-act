@@ -17,6 +17,13 @@ def pad_tensor(tensor, new_size, value, axis=1):
         ], axis),
         lambda: tensor)
 
+def pad_and_concat(t1, t2, axis=0):
+    new_size = tf.maximum(tf.shape(t1)[1], tf.shape(t2)[1])
+    return tf.concat([
+        tf.pad(t1, [[0, 0], [0, new_size - tf.shape(t1)[1]]] + [[0, 0]] * 1),
+        tf.pad(t2, [[0, 0], [0, new_size - tf.shape(t2)[1]]] + [[0, 0]] * 1)
+    ], axis)
+
 def levenshtein(s1, s2):
     if len(s1) < len(s2):
         return levenshtein(s2, s1)
@@ -36,7 +43,7 @@ def levenshtein(s1, s2):
         previous_row = current_row
     return previous_row[-1]
 
-def calculate_ler(target, result, decode_fn):
+def calculate_ler(target, result, decode_fn, id=None):
     str_original = decode_fn(target)
     str_decoded = decode_fn(result)
     str_original = list(filter(lambda it: it != '<sp>', str_original))
@@ -48,4 +55,4 @@ def calculate_ler(target, result, decode_fn):
         # ler = ops_utils.levenshtein(target_labels[i], decoded[i]) / len(target_labels[i])
         ler = levenshtein(str_original, str_decoded) / len(str_original)
         return min(1.0, ler), str_original, str_decoded
-    else: return (0 if len(str_decoded) == 0 else 1), str_original, str_decoded
+    else: return None, str_original, str_decoded

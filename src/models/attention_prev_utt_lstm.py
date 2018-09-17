@@ -25,13 +25,14 @@ NUM_SPEAKERS = 2
 class FixedHelper(tf.contrib.seq2seq.GreedyEmbeddingHelper):
     def sample(self, *args, **kwargs):
         result = super().sample(*args, **kwargs)
-        result.set_shape([3])
+        #result.set_shape([3])
         return result
 
 
 class AttentionModel(BaseAttentionModel):
     def __init__(self,
-                 feed_initial_state=False):
+                 feed_initial_state=False,
+                 use_context_vector=True):
         super().__init__(
             # attention_wrapper_fn=self._attention_wrapper,
             train_decode_fn=self._train_decode_fn,
@@ -40,12 +41,13 @@ class AttentionModel(BaseAttentionModel):
                 FixedHelper(embedding, start_tokens, end_token)
         )
         self._feed_initial_state = feed_initial_state
+        self._use_context_vector = use_context_vector
 
     def __call__(self, hparams, mode, iterator, **kwargs):
         if mode == tf.estimator.ModeKeys.EVAL:
             hparams = tf.contrib.training.HParams(**hparams.values())
-            hparams.batch_size = 3
-            print(hparams)
+            #hparams.batch_size = 3
+            #print(hparams)
         super().__call__(hparams, mode, iterator)
 
     '''
@@ -101,6 +103,13 @@ class AttentionModel(BaseAttentionModel):
             tf.assign(var_list["decoder/attention_wrapper/basic_lstm_cell/kernel/Adam_1"],
                       tf.concat([loaded_kernel_adam1[:640], tf.zeros([640, 2560]), loaded_kernel_adam1[640:]], axis=0)) if flags.mode == "train" else tf.no_op()
         ])
+
+    @classmethod
+    def ignore_save_variables(cls):
+        return []
+        return ["context_speaker_0", "context_speaker_1",
+                "tower_0/context_speaker_0", "tower_0/context_speaker_1",
+                "tower_1/context_speaker_0", "tower_1/context_speaker_1"]
 
     def get_extra_ops(self):
         return self._extra_ops
@@ -175,13 +184,13 @@ class AttentionModel(BaseAttentionModel):
         context, initial_state = self._build_context(decoder_cell, encoder_outputs)
         return super()._train_decode_fn_default(
             decoder_inputs, target_seq_len,
-            initial_state if self._feed_initial_state else None, encoder_outputs, decoder_cell, scope, context)
+            initial_state if self._feed_initial_state else None, encoder_outputs, decoder_cell, scope, context if self._use_context_vector else None)
 
     def _eval_decode_fn(self, initial_state, encoder_outputs, decoder_cell, scope):
         context, initial_state = self._build_context(decoder_cell, encoder_outputs)
         return super()._eval_decode_fn_default(
             initial_state if self._feed_initial_state else None,
-            encoder_outputs, decoder_cell, scope, context)
+            encoder_outputs, decoder_cell, scope, context if self._use_context_vector else None)
 
     @classmethod
     def trainable_variables(cls):

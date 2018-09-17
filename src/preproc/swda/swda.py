@@ -183,7 +183,7 @@ class Transcript:
         # Create the utterance list:
         self.utterances = map((lambda x: Utterance(x, transcript_metadata)), rows)
         # Coder's Manual: ``We also removed any line with a "@" (since @ marked slash-units with bad segmentation).''
-        self.utterances = filter((lambda x: not re.search(r"[@]", x.act_tag)), self.utterances)
+        #self.utterances = filter((lambda x: not re.search(r"[@]", x.act_tag)), self.utterances)
 
 
 ######################################################################

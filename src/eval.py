@@ -56,7 +56,12 @@ def load_model(sess, Model, hparams):
         if FLAGS.transfer:
             Model.load(sess, ckpt, FLAGS)
         else:
-            saver = tf.train.Saver()
+            saver_variables = tf.global_variables()
+            var_list = {var.op.name: var for var in saver_variables}
+            for var in Model.ignore_save_variables():
+                if var in var_list:
+                    del var_list[var]
+            saver = tf.train.Saver(var_list=var_list)
             saver.restore(sess, ckpt)
 
 
@@ -66,6 +71,7 @@ def eval(hparams, flags=None):
     mode = tf.estimator.ModeKeys.EVAL
     BatchedInput = utils.get_batched_input_class(hparams)
     Model = utils.get_model_class(hparams)
+    hparams.batch_size = hparams.eval_batch_size
 
     with graph.as_default():
         batched_input = BatchedInput(hparams, mode)
@@ -84,35 +90,46 @@ def eval(hparams, flags=None):
         batched_input.reset_iterator(sess)
         lers = []
 
-        pbar = tqdm(total=batched_input.size, ncols=100)
+        pbar = tqdm(total=trainer.data_size, ncols=100)
         pbar.set_description("Eval")
-        fo = open(os.path.join(hparams.summaries_dir, "eval_ret_%d.txt" % trainer.global_step), "w")
+        fo = open(os.path.join(hparams.summaries_dir, "eval_ret.txt"), "w")
+        lers = {}
         while True:
             try:
-                input_filenames, target_labels, decoded, summary = trainer.eval(sess)
+                ground_truth_labels, predicted_labels, summary = trainer.eval(sess)
+                utils.write_log(hparams, [str(ground_truth_labels)])
 
-                for i in range(len(target_labels)):
-                    ler, str_original, str_decoded = ops_utils.calculate_ler(
-                        target_labels[i], decoded[i], batched_input.decode)
-                    lers.append(ler)
-                    filename = input_filenames[i].decode('utf-8')
+                for acc_id, (gt_labels, p_labels) in enumerate(zip(ground_truth_labels, predicted_labels)):
+                    if acc_id not in lers: lers[acc_id] = []
+                    for i in range(len(gt_labels)):
+                        ler, str_original, str_decoded = ops_utils.calculate_ler(
+                            gt_labels[i], p_labels[i], batched_input.decode, acc_id)
+                        if ler is not None:
+                            lers[acc_id].append(ler)
+                            #filename = input_filenames[i].decode('utf-8')
+                            filename = ""
+                        
+                            #if flags.verbose:
+                            #if i == 0:
+                            tqdm.write("\n%s\n%s\nLER: %.3f\n" % (' '.join(str_original), ' '.join(str_decoded), ler))
+                            fo.write("%s\t%s\t%.3f\n" % (' '.join(str_original), ' '.join(str_decoded), ler))
 
-                    #if flags.verbose:
-                    print("%s\n%s\nLER: %.3f\n" % (' '.join(str_original), ' '.join(str_decoded), ler))
-                    fo.write("%s\t%s\t%.3f\n" % (filename, ' '.join(str_decoded), ler))
+                            meta = tf.SummaryMetadata()
+                            meta.plugin_data.plugin_name = "text"
+                            summary = tf.Summary()
+                            #summary.value.add(
+                            #    tag=os.path.basename(filename),
+                            #    metadata=meta,
+                            #    tensor=tf.make_tensor_proto('%s\n\n*(LER=%.3f)* ->\n\n%s' % (
+                            #    ' '.join(str_original), sum(lers) / len(lers), ' '.join(str_decoded)), dtype=tf.string))
+                            #eval_writer.add_summary(summary, trainer.epoch_exact)
 
-                    meta = tf.SummaryMetadata()
-                    meta.plugin_data.plugin_name = "text"
-                    summary = tf.Summary()
-                    summary.value.add(
-                        tag=os.path.basename(filename),
-                        metadata=meta,
-                        tensor=tf.make_tensor_proto('%s\n\n*(LER=%.3f)* ->\n\n%s' % (
-                        ' '.join(str_original), sum(lers) / len(lers), ' '.join(str_decoded)), dtype=tf.string))
-                    #eval_writer.add_summary(summary, trainer.epoch_exact)
-
+                # update pbar progress and postfix
                 pbar.update(trainer.batch_size)
-                pbar.set_postfix(ler="%.3f" % (sum(lers) / len(lers)))
+                bar_pf = {}
+                for acc_id in range(len(ground_truth_labels)):
+                    bar_pf["er" + str(acc_id)] = "%.3f" % (sum(lers[acc_id]) / len(lers[acc_id]))
+                pbar.set_postfix(bar_pf)
             except tf.errors.OutOfRangeError:
                 break
 

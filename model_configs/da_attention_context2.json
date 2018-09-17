@@ -1,0 +1,38 @@
+{
+  "name": "da_attention_context2",
+  "model": "da_attention",
+  "dataset": "swda",
+  "input_unit": "word",
+  "vocab_file": "data/swbd/vocab/words_swda.txt",
+  "train_data": "data/swbd/inputs_swda_padding25_speaker_norm_train.txt",
+  "eval_data": "data/swbd/inputs_swda_padding25_speaker_norm_test.txt",
+
+  "learning_rate": 1e-3,
+  "batch_size": 40,
+  "eval_batch_size": 40,
+
+  "da_word_encoder_type": "bilstm",
+  "num_da_word_encoder_layers": 2,
+  "da_word_encoder_num_units": 128,
+  "da_attention_lambda": 0.0,
+  "da_input": "attention_context",
+  "dropout": 0.0,
+  
+  "num_utt_history": 1,
+  
+  "learning_rate_start_decay_epoch": 6,
+  "learning_rate_decay_steps": 2,
+  "learning_rate_decay_rate": 0.5,
+
+  "encoder_type": "pbilstm",
+  "encoder_num_units": 512,
+  "decoder_num_units": 512,
+  "attention_num_units": 512,
+  "attention_layer_size": 512,
+  "embedding_size": 256,
+  "output_attention": true,
+  
+  "beam_width": 0,
+  "length_penalty_weight": 0.5,
+  "max_gradient_norm": 5.0
+}

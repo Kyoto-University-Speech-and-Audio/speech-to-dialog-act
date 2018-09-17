@@ -35,11 +35,12 @@ class MultiGPUTrainer(Trainer):
                         model(
                             self.hparams,
                             tf.estimator.ModeKeys.TRAIN,
-                            self._batched_input_train.iterator)
+                            self._batched_input_train)
                         loss = model.loss
                         with tf.name_scope("compute_gradients"):
                             grad_and_vars = opt.compute_gradients(
                                 loss,
+                                var_list=model.trainable_variables(),
                                 colocate_gradients_with_ops=self.hparams.colocate_gradients_with_ops)
                             vars = [var for _, var in grad_and_vars]
                             grads, _, _ = model_utils.gradient_clip([grad for grad, var in grad_and_vars], max_gradient_norm=MAX_GRADIENT_NORM)
@@ -66,13 +67,24 @@ class MultiGPUTrainer(Trainer):
                 tf.summary.scalar("learning_rate", self.learning_rate),
             ])
 
-        if eval or self.eval_mode:
-            with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-                self.eval_model = self.Model()
-                self.eval_model(
+        # init dev model
+        if self.hparams.dev_data is not None:
+            with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                self.dev_model = self.Model()
+                self.hparams.batch_size = self.hparams.eval_batch_size
+                self.dev_model(
                     self.hparams,
                     tf.estimator.ModeKeys.EVAL,
-                    self._batched_input_eval.iterator)
+                    self._batched_input_dev)
+
+        if eval or self.eval_mode:
+            with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+                self.test_model = self.Model()
+                self.hparams.batch_size = self.hparams.eval_batch_size
+                self.test_model(
+                    self.hparams,
+                    tf.estimator.ModeKeys.EVAL,
+                    self._batched_input_test)
                 self._eval_summary = tf.no_op()
 
         self.print_logs()
@@ -109,14 +121,14 @@ class MultiGPUTrainer(Trainer):
 
         return loss, summary
 
-    def eval(self, sess):
-        input_filenames, target_labels, sample_ids, summary = sess.run([
-            self.eval_model.input_filenames,
-            self.eval_model.target_labels,
-            self.eval_model.sample_id,
+    def eval(self, sess, dev=False):
+        model = self.dev_model if dev else self.test_model
+        target_labels, sample_ids, summary = sess.run([
+            model.get_ground_truth_label_placeholder(),
+            model.get_predicted_label_placeholder(),
             self._eval_summary
         ])
-        return input_filenames, target_labels, sample_ids, summary
+        return target_labels, sample_ids, summary
 
     @property
     def global_step(self):
@@ -124,7 +136,7 @@ class MultiGPUTrainer(Trainer):
 
     @property
     def data_size(self):
-        return self._batched_input_train.size
+        return self._batched_input_train.size or (self.hparams.train_size if self.train_mode else self.hparams.eval_size)
 
     @property
     def epoch(self):

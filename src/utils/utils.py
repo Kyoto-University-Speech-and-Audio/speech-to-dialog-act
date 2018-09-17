@@ -1,4 +1,5 @@
 import tensorflow as tf
+import os
 from .. import configs
 
 def get_batched_input_class(hparams):
@@ -12,6 +13,12 @@ def get_batched_input_class(hparams):
         from ..datasets.aps import BatchedInput
     elif hparams.dataset == 'swbd':
         from ..datasets.swbd import BatchedInput
+    elif hparams.dataset == 'swda':
+        from ..datasets.swda import BatchedInput
+    elif hparams.dataset == 'swbd_order':
+        from ..datasets.swbd_order import BatchedInput
+    elif hparams.dataset == 'swbd_order_speaker_change':
+        from ..datasets.swbd_order_speaker_change import BatchedInput
     elif hparams.dataset == 'aps-word':
         from ..datasets.aps import BatchedInput
     elif hparams.dataset == 'erato':
@@ -48,11 +55,20 @@ def get_model_class(hparams):
     elif hparams.model == 'attention_prev_utt_is':
         from ..models.attention_prev_utt_lstm_is import AttentionModel
         return AttentionModel
+    elif hparams.model == 'attention_prev_utt_is_only':
+        from ..models.attention_prev_utt_lstm_is_only import AttentionModel
+        return AttentionModel
     elif hparams.model == 'attention_keep_encoder':
         from ..models.attention_keep_encoder import AttentionModel
         return AttentionModel
     elif hparams.model == 'ctc-attention':
         from ..models.ctc_attention import CTCAttentionModel as Model
+    elif hparams.model == 'encoder_speaker_change':
+        from ..models.encoder_speaker_change import Model
+    elif hparams.model == 'da':
+        from ..models.da import Model
+    elif hparams.model == 'da_attention':
+        from ..models.da_attention import Model
     return Model
 
 
@@ -145,8 +161,9 @@ def create_hparams(flags):
         verbose=_argval('verbose') or False,
 
         batch_size=_argval('batch_size') or 32,
-        eval_batch_size=_argval('batch_size') or 32,
+        eval_batch_size=_argval('eval_batch_size') or _argval('batch_size') or 32,
         num_buckets=5,
+        max_epoch_num=30,
 
         sample_rate=16000,
         window_size_ms=30.0,
@@ -169,12 +186,24 @@ def create_hparams(flags):
         learning_rate=_argval("learning_rate") or 1e-3,
         optimizer="adam",
         max_gradient_norm=5.0,
+        dropout=0.2,
 
         # Data
         vocab_file=None,
         train_data=None,
-        eval_data=None,
+        predicted_train_data=None,
+        predicted_dev_data=None,
+        predicted_test_data=None,
+        test_data=None,
+        dev_data=None,
+        train_size=None,
+        eval_size=None,
         encoding="euc-jp",
+        
+        # learning rate
+        learning_rate_start_decay_epoch=10,
+        learning_rate_decay_steps=2,
+        learning_rate_decay_rate=0.5,
 
         # Attention
         sos_index=1,
@@ -186,6 +215,18 @@ def create_hparams(flags):
         attention_energy_scale=False,
         attention_num_units=128,
         output_attention=False,
+        use_encoder_final_state=False,
+
+        # dialog act
+        da_word_encoder_type='bilstm',
+        da_word_encoder_num_units=100,
+        num_da_word_encoder_layers=2,
+        embedding_size=200,
+        num_da_classes=43,
+        num_utt_history=5,
+        utt_encoder_num_units=100,
+        da_attention_lambda=0.8,
+        da_input="attention_context",
 
         # Infer
         input_path=_argval("input_path") or configs.DEFAULT_INFER_INPUT_PATH,
@@ -208,13 +249,16 @@ def create_hparams(flags):
 
     return hparams
 
+def update_hparams(flags, hparams):
+    if flags.config is not None:
+        json = open('model_configs/%s.json' % flags.config).read()
+        hparams.parse_json(json)
 
-def clear_log(path=None):
-    f = open(path or configs.DEFAULT_LOG_PATH, 'w')
+def clear_log(hparams, path=None):
+    f = open(os.path.join(hparams.summaries_dir, path or configs.DEFAULT_LOG_PATH), 'w')
     f.close()
 
-
-def write_log(text, path=None):
-    f = open(path or configs.DEFAULT_LOG_PATH, 'a')
+def write_log(hparams, text, path=None):
+    f = open(os.path.join(hparams.summaries_dir, path or configs.DEFAULT_LOG_PATH), 'a')
     f.write('\n'.join(text) + '\n')
     f.close()

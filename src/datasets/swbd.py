@@ -6,21 +6,21 @@ from .base import BaseInputData
 from ..utils import utils
 
 class BatchedInput(BaseInputData):
-    def __init__(self, hparams, mode):
-        BaseInputData.__init__(self, hparams, mode)
+    def __init__(self, hparams, mode, dev=False):
+        BaseInputData.__init__(self, hparams, mode, dev)
 
         inputs = []
-        for line in open(self.data_filename, "r"):
-            if self.mode != tf.estimator.ModeKeys.PREDICT:
-                if line.strip() == "": continue
-                filename, target = line.strip().split(' ', 1)
-                inputs.append((filename, "%d %s %d" % (self.hparams.sos_index, target, self.hparams.eos_index)))
-            else:
-                filename = line.strip()
-                inputs.append(filename)
+        with open(self.data_filename, "r") as f:
+            headers = f.readline().strip().split('\t')
+            for line in f.read().split('\n')[1:]:
+                if self.mode != tf.estimator.ModeKeys.PREDICT:
+                    if line.strip() == "": continue
+                    input = { headers[i]: dat for i, dat in enumerate(line.strip().split('\t')) } 
+                    if 'target' in input: input['target'] = "%d %s %d" % (self.hparams.sos_index, input['target'], self.hparams.eos_index)
+                    inputs.append(input)
 
-        self.size = len(inputs)
-        self.inputs = inputs
+            self.size = len(inputs)
+            self.inputs = inputs
 
     def load_vocab(self, vocab_file):
         labels = [s.strip() for s in open(vocab_file, encoding=self.hparams.encoding)]
@@ -50,14 +50,16 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def extract_target_features(self, str):
-        return [[self.hparams.sos_index] + [int(x) for x in str.decode('utf-8').split(' ')] + [self.hparams.eos_index]]
+        return [[int(x) for x in str.decode('utf-8').split(' ')]]
+
+    def get_inputs_list(self, field):
+        return [inp[field] for inp in self.inputs]
 
     def reset_iterator(self, sess, skip=0, shuffle=False, bucket_size=None):
         if shuffle: inputs = self.shuffle(self.inputs, bucket_size)
         else: inputs = self.inputs
         inputs = inputs[skip:]
-        filenames, targets = zip(*inputs)
         sess.run(self.iterator.initializer, feed_dict={
-            self.filenames: filenames,
-            self.targets: targets
+            self.filenames: self.get_inputs_list('sound'),
+            self.targets: self.get_inputs_list('target')
         })

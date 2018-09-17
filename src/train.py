@@ -4,6 +4,7 @@ import tensorflow as tf
 import random
 import numpy as np
 import sys
+import shutil
 from . import configs
 from .utils import utils
 from tqdm import tqdm
@@ -13,7 +14,6 @@ from tensorflow.python import debug as tf_debug
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
-
 
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
@@ -55,9 +55,12 @@ def load_model(sess, Model, hparams):
         ckpt = os.path.join(hparams.out_dir, "csp.%s.ckpt" % FLAGS.load)
     else:
         ckpt = tf.train.latest_checkpoint(hparams.out_dir)
+
     if ckpt:
         if FLAGS.transfer:
+            """
             saver_variables = tf.global_variables()
+            
             var_list = {var.op.name: var for var in saver_variables}
             del var_list["apply_gradients/beta1_power"]
             del var_list["apply_gradients/beta2_power"]
@@ -87,16 +90,28 @@ def load_model(sess, Model, hparams):
             del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam_1"]
             saver = tf.train.Saver(var_list)
             saver.restore(sess, ckpt)
-
-            #Model.load(sess, ckpt, FLAGS)
+            """
+            Model.load(sess, ckpt, FLAGS)
         else:
-            saver = tf.train.Saver()
+            saver_variables = tf.global_variables()
+            var_list = {var.op.name: var for var in saver_variables}
+            for var in Model.ignore_save_variables():
+                print(var_list[var])
+                if var in var_list:
+                    del var_list[var]
+            saver = tf.train.Saver(var_list=var_list)
             saver.restore(sess, ckpt)
 
+def save(hparams, sess, name=None):
+    path = os.path.join(
+        hparams.out_dir,
+        "csp.%s.ckpt" % (name))
+    saver = tf.train.Saver()
+    saver.save(sess, path)
+    if hparams.verbose: print("Saved as csp.%s.ckpt" % (name))
 
 def argval(name):
     return utils.argval(name, FLAGS)
-
 
 def train(Model, BatchedInput, hparams):
     hparams.beam_width = 0
@@ -123,7 +138,11 @@ def train(Model, BatchedInput, hparams):
 
         trainer.init(sess)
 
-        writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir, "log"), sess.graph)
+        # tensorboard log
+        if FLAGS.reset:
+            if os.path.exists(hparams.summaries_dir):
+                shutil.rmtree(hparams.summaries_dir)
+        writer = tf.summary.FileWriter(os.path.join(hparams.summaries_dir), sess.graph)
 
         last_save_step = trainer.global_step
         last_eval_pos = trainer.global_step - FLAGS.eval
@@ -139,40 +158,72 @@ def train(Model, BatchedInput, hparams):
 
         pbar = reset_pbar()
         last_epoch = trainer.epoch
-        ler = 1
-        min_ler = 1
+        dev_lers = {}
+        min_dev_lers = {}
+        test_lers = {}
+        min_test_lers = {}
+        min_dev_test_lers = {}
 
         while True:
+            utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
+            
             loss, summary = trainer.train(sess)
-            utils.write_log(["abc"])
 
             if trainer.epoch > last_epoch:
                 pbar = reset_pbar()
                 last_epoch = trainer.epoch
 
-            train_cost = loss
             writer.add_summary(summary, trainer.processed_inputs_count)
             pbar.update(1)
-            pbar.set_postfix(cost="%.3f" % (train_cost), min_ler="%2.1f" % (min_ler * 100), last_ler="%2.1f" % (ler * 100))
 
             if trainer.global_step - last_save_step >= FLAGS.save_steps:
-                path = os.path.join(
-                    hparams.out_dir,
-                    "csp.epoch%d.ckpt" % (trainer.epoch))
-                saver = tf.train.Saver()
-                saver.save(sess, path)
-                if hparams.verbose: print("Saved as csp.epoch%d.ckpt" % (trainer.epoch))
+                save(hparams, sess, "epoch%d" % trainer.epoch)
                 last_save_step = trainer.global_step
+            
+            if trainer.epoch > hparams.max_epoch_num: break
 
             if argval("eval") > 0:
                 if trainer.global_step - last_eval_pos >= FLAGS.eval:
-                    pbar.set_postfix_str("Evaluating...")
-                    ler = trainer.eval_all(sess)
-                    if ler < min_ler: min_ler = ler
-                    writer.add_summary(
-                        tf.Summary(value=[tf.Summary.Value(simple_value=ler, tag="label_error_rate")]),
-                        trainer.processed_inputs_count)
+                    pbar.set_postfix_str("Evaluating (dev)...")
+                    dev_lers = trainer.eval_all(sess, dev=True)
+                    pbar.set_postfix_str("Evaluating (test)...")
+                    test_lers = trainer.eval_all(sess, dev=False)
+                    
+                    for acc_id in test_lers:
+                        if dev_lers is None:
+                            if acc_id not in min_test_lers or min_test_lers[acc_id] > test_lers[acc_id]:
+                                min_test_lers[acc_id] = test_lers[acc_id]
+                                save(hparams, sess, "best_%d" % acc_id)
+                        else:
+                            if acc_id not in min_test_lers or min_test_lers[acc_id] > test_lers[acc_id]:
+                                min_test_lers[acc_id] = test_lers[acc_id]
+
+                            if acc_id not in min_dev_lers or (min_dev_lers[acc_id] > dev_lers[acc_id]):
+                                min_dev_lers[acc_id] = dev_lers[acc_id]
+                                min_dev_test_lers[acc_id] = test_lers[acc_id]
+                                save(hparams, sess, "best_%d" % acc_id)
+                            
+                            tqdm.write("dev: %2.1f, test: %2.1f, acc: %2.1f" %
+                                    (dev_lers[acc_id], test_lers[acc_id], min_test_lers[acc_id]))
+                    
+                        for (err_id, lers) in [("dev", dev_lers), ("test", test_lers), ("min_test", min_test_lers)]:
+                            if lers is not None:
+                                writer.add_summary(
+                                    tf.Summary(value=[tf.Summary.Value(simple_value=lers[acc_id],
+                                        tag="%s_error_rate_%d" % (err_id, acc_id))]),
+                                    trainer.processed_inputs_count)
+
                     last_eval_pos = trainer.global_step
+            
+            # update postfix
+            pbar_pf = {}
+            for acc_id in test_lers:
+                pbar_pf["min_dev" + str(acc_id)] = "%2.1f" % (min_dev_test_lers[acc_id] * 100)
+                pbar_pf["min_test" + str(acc_id)] = "%2.1f" % (min_test_lers[acc_id] * 100)
+                pbar_pf["test" + str(acc_id)] = "%2.1f" % (test_lers[acc_id] * 100)
+                pbar_pf["dev" + str(acc_id)] = "%2.1f" % (dev_lers[acc_id] * 100)
+            pbar_pf['cost'] = "%.3f" % (loss)
+            pbar.set_postfix(pbar_pf)
 
 
 def main(unused_argv):
@@ -180,7 +231,9 @@ def main(unused_argv):
     hparams.hcopy_path = configs.HCOPY_PATH
     hparams.hcopy_config = os.path.join(configs.HCOPY_CONFIG_PATH)
 
-    utils.clear_log()
+    if not os.path.exists(hparams.summaries_dir): os.mkdir(hparams.summaries_dir)
+    if not os.path.exists(hparams.out_dir): os.mkdir(hparams.out_dir)
+    utils.clear_log(hparams)
 
     random_seed = FLAGS.random_seed
     if random_seed is not None and random_seed > 0:

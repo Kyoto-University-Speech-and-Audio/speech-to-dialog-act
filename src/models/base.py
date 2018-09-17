@@ -10,7 +10,7 @@ class BaseModel(object):
     def __call__(self,
                  hparams,
                  mode,
-                 iterator,
+                 batched_input,
                  **kwargs):
         self.hparams = hparams
         self.mode = mode
@@ -18,10 +18,11 @@ class BaseModel(object):
         self.eval_mode = self.mode == tf.estimator.ModeKeys.EVAL
         self.infer_mode = self.mode == tf.estimator.ModeKeys.PREDICT
 
-        self.iterator = iterator
+        self._batched_input = batched_input
         # self.batch_size = hparams.batch_size
+        self.iterator = batched_input.iterator
 
-        self.batch_size = tf.shape(self.input_seq_len)[0]
+        self.batch_size = tf.shape(self.inputs)[0]
 
         if self.train_mode:
             self._build_train_model(hparams, **kwargs)
@@ -103,6 +104,10 @@ class BaseModel(object):
 
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
+
+    @classmethod
+    def ignore_save_variables(cls):
+        return []
 
     @classmethod
     def trainable_variables(cls):
