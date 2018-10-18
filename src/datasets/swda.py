@@ -7,22 +7,23 @@ from ..utils import utils
 import numpy as np
 
 class BatchedInput(BaseInputData):
-    def __init__(self, hparams, mode, dev=False):
-        BaseInputData.__init__(self, hparams, mode, dev)
+    def __init__(self, hparams, mode, batch_size, dev=False):
+        BaseInputData.__init__(self, hparams, mode, batch_size, dev)
 
         inputs = []
-        utils.write_log(hparams, [self.data_filename])
         with open(self.data_filename, "r") as f:
-            headers = f.readline().strip().split('\t')
-            for line in f.read().split('\n')[1:]:
+            lines = f.read().split('\n')
+            headers = lines[0].strip().split('\t')
+            for line in lines[1:]:
                 if line.strip() == "": continue
                 input = { headers[i]: dat for i, dat in enumerate(line.strip().split('\t')) }
                 if 'target' in input: input['target'] = "%d %s %d" % (self.hparams.sos_index, input['target'], self.hparams.eos_index)
                 #else: print(line)
                 inputs.append(input)
-
+        
         if hparams.predicted_train_data is not None:
-            with open("swda_padding25_out_%s.txt" % mode, "r") as f:
+            with open(hparams.predicted_train_data if mode == "train" else \
+                    (hparams.predicted_dev_data if dev else hparams.predicted_test_data), "r") as f:
                 for _id, line in enumerate(f.read().split('\n')):
                     if line.strip() == "": continue
                     fields = line.split('\t')

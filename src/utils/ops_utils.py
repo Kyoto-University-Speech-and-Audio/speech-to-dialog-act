@@ -53,6 +53,19 @@ def calculate_ler(target, result, decode_fn, id=None):
     if len(str_original) != 0:
         # ler = ops_utils.levenshtein(''.join(str_original), ''.join(str_decoded)) / len(''.join(str_original))
         # ler = ops_utils.levenshtein(target_labels[i], decoded[i]) / len(target_labels[i])
+        # ler = levenshtein(' '.join(str_original), ' '.join(str_decoded)) / len(' '.join(str_original))
         ler = levenshtein(str_original, str_decoded) / len(str_original)
         return min(1.0, ler), str_original, str_decoded
     else: return None, str_original, str_decoded
+
+def evaluate(target, result, decode_fn, metrics="wer", id=None):
+    if metrics == "wer":
+        return calculate_ler(target, result, decode_fn, id)
+    elif metrics == "ser":  # segment error rate
+        target = [1 if t < 27285 else t for t in target]
+        result = [1 if t < 27285 else t for t in result]
+        return calculate_ler(target, result, decode_fn, id)
+    elif metrics == "scer": # segment count error rate
+        target = [t for t in target if t == 27287]
+        result = [t for t in result if t == 27287]
+        return calculate_ler(target, result, decode_fn, id)

@@ -16,19 +16,31 @@ class Trainer(object):
         self.Model = Model
         self.BatchedInput = BatchedInput
         self.batch_size = self.hparams.eval_batch_size if self.eval_mode else self.hparams.batch_size
+        self._batch_size = tf.Variable(
+                self.batch_size,
+                trainable=False,
+                name="batch_size")
+        self.eval_batch_size = self.hparams.eval_batch_size
+        self._eval_batch_size = tf.Variable(
+                self.eval_batch_size,
+                trainable=False, name="eval_batch_size")
 
         batched_input_test = None
         batched_input_dev = None
+
         if self.train_mode: # init train set and dev set
             if hparams.dev_data is not None:
-                batched_input_dev = BatchedInput(self.hparams, tf.estimator.ModeKeys.EVAL, dev=True)
+                batched_input_dev = BatchedInput(self.hparams,
+                        tf.estimator.ModeKeys.EVAL, self._batch_size, dev=True)
                 batched_input_dev.init_dataset()
-            batched_input_train = BatchedInput(self.hparams, tf.estimator.ModeKeys.TRAIN)
+            batched_input_train = BatchedInput(self.hparams,
+                    tf.estimator.ModeKeys.TRAIN, self._eval_batch_size)
             batched_input_train.init_dataset()
         else: batched_input_train = None
         
         if hparams.test_data is not None: # init test set
-            batched_input_test = BatchedInput(self.hparams, tf.estimator.ModeKeys.EVAL, dev=False)
+            batched_input_test = BatchedInput(self.hparams,
+                    tf.estimator.ModeKeys.EVAL, self.eval_batch_size, dev=False)
             batched_input_test.init_dataset()
 
         self.hparams.num_classes = (batched_input_train or batched_input_test).num_classes
@@ -51,7 +63,7 @@ class Trainer(object):
         self.processed_inputs_count = sess.run(self._processed_inputs_count)
         self.reset_train_iterator(sess)
         self._batched_input_test.reset_iterator(sess)
-        self._batched_input_dev.reset_iterator(sess)
+        if self._batched_input_dev is not None: self._batched_input_dev.reset_iterator(sess)
 
     def build_model(self, eval=False):
         if self.train_mode:
@@ -68,7 +80,7 @@ class Trainer(object):
                     self._batched_input_train)
                 opt = utils.get_optimizer(self.hparams, self.learning_rate)
                 self.loss = model.loss
-                self.params = self.Model.trainable_variables()
+                self.params = model.trainable_variables()
 
                 # compute gradient & update vảiables
                 gradients = opt.compute_gradients(
@@ -89,21 +101,19 @@ class Trainer(object):
 
             self._train_model = model
         
-        # init dev model
-        if self.hparams.dev_data is not None:
-            with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-                self.dev_model = self.Model()
-                self.hparams.batch_size = self.hparams.eval_batch_size
-                self.dev_model(
-                    self.hparams,
-                    tf.estimator.ModeKeys.EVAL,
-                    self._batched_input_dev)
+            # init dev model
+            if self.hparams.dev_data is not None:
+                with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                    self.dev_model = self.Model()
+                    self.dev_model(
+                        self.hparams,
+                        tf.estimator.ModeKeys.EVAL,
+                        self._batched_input_dev)
 
         # init test model
         if eval > 0 or self.eval_mode:
             with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
                 self.test_model = self.Model()
-                self.hparams.batch_size = self.hparams.eval_batch_size
                 self.test_model(
                     self.hparams,
                     tf.estimator.ModeKeys.EVAL,
@@ -120,6 +130,7 @@ class Trainer(object):
                 skip=self.processed_inputs_count % self.data_size,
                 #shuffle=self.epoch > 5
             )
+            self._train_model.assign_input()
 
     def print_logs(self):
         print("# Variables")
@@ -134,15 +145,42 @@ class Trainer(object):
                                         param.op.device))
 
     def train(self, sess):
+        model = self._train_model
         try:
-            self.processed_inputs_count, _, loss, _, summary, _ = self._train_model.train(sess, [
-                self._processed_inputs_count,
-                self.update,
-                self.loss,
-                self._global_step,
-                self._summary,
-                self.increment_inputs_count
-            ])
+            ret = model.train(sess, [
+                    self._processed_inputs_count,
+                    self.loss,
+                    self._global_step,
+                    self._summary,
+                    self.increment_inputs_count,
+                ] + \
+                [self.update] if not self.hparams.is_simulated_train else [] + \
+                model.get_ground_truth_label_placeholder() + \
+                model.get_predicted_label_placeholder() + \
+                model.get_extra_ops()
+            )
+            self.processed_inputs_count = ret[0]
+
+            if self.hparams.result_output_file:
+                target_ids = ret[-3]
+                sample_ids = ret[-2]
+                atts = ret[-1]
+                with open(self.hparams.result_output_file, "a") as f:
+                    for ids1, ids2, att, filename in zip(target_ids, sample_ids,
+                            atts, ret[2]):
+                        _ids1 = [str(id) for id in ids1 if id < self.hparams.num_classes - 2]
+                        _ids2 = [str(id) for id in ids2 if id < self.hparams.num_classes - 2]
+                        fn = "%s/%d.npy" % (self.hparams.result_output_folder, self._eval_count)
+                        f.write('\t'.join([
+                            filename.decode(),
+                            ' '.join(_ids1),
+                            ' '.join(_ids2),
+                            #' '.join(self._batched_input_test.decode(ids2)),
+                            fn
+                        ]) + '\n')
+                        att = att[:len(_ids2), :]
+                        np.save(fn, att)
+                        self._eval_count += 1
 
         except tf.errors.OutOfRangeError:
             self.processed_inputs_count, _ = \
@@ -156,36 +194,24 @@ class Trainer(object):
         # number of evaluated accuracies (more than 1 for multi-task learning
         num_acc = len(model.get_ground_truth_label_placeholder())
         ret = sess.run(
-            #model.dlg_ids,
             model.get_ground_truth_label_placeholder() + \
             model.get_predicted_label_placeholder() + \
+            #[model.input_filenames] + \
             [
                 model.loss, self._eval_summary,
-                model.get_extra_ops(),
-            ]
+            ] + model.get_extra_ops()
         )
+        print(ret[0], ret[2])
 
-        if False:
-            target_ids = ret[0]
-            sample_ids = ret[1]
-            atts = ret[-1]
-            np.set_printoptions(precision=2, threshold=10000)
-            print(np.shape(atts[:, -1, :]))
-            #print(atts[:, -1, :])
-            with open("swda_padding25_out.txt", "a") as f:
-                for ids1, ids2, att in zip(target_ids, sample_ids, atts):
-                    ids1 = [str(id) for id in ids1 if id < self.hparams.num_classes - 2]
-                    ids2 = [str(id) for id in ids2 if id < self.hparams.num_classes - 2]
-                    f.write(' '.join(ids1) + "\t")
-                    f.write(' '.join(ids2) + "\t")
-                    #print(att[-1])
-                    att = att[:len(ids2), :]
-                    fn = "atts/%d.npy" % (self._eval_count)
-                    np.save(fn, att)
-                    f.write(fn + "\n")
-                    self._eval_count += 1
+        if self.hparams.output_result:
+            model.output_result(
+                ret[:num_acc],
+                ret[num_acc:2*num_acc],
+                ret[-len(model.get_extra_ops()):]
+            )
+            self._eval_count += len(ret[0])
 
-        return ret[:num_acc], ret[num_acc:2 * num_acc], ret[2 * num_acc + 1]
+        return None, ret[:num_acc], ret[num_acc:2 * num_acc]
 
     def eval_all(self, sess, dev=False):
         """

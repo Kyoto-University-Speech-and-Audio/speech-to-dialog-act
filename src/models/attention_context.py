@@ -31,8 +31,10 @@ class AttentionModel(BaseAttentionModel):
 
         del var_list["Variable"]
         del var_list["Variable_1"]
+        del var_list["context_embedding/bias"]
+        del var_list["context_embedding/kernel"]
 
-        loaded_kernel = tf.get_variable("loaded_kernel", shape=[1920, 2560])
+        loaded_kernel = tf.get_variable("loaded_kernel", shape=[1536, 2048])
 
         saver2 = tf.train.Saver(var_list={"decoder/attention_wrapper/basic_lstm_cell/kernel": loaded_kernel})
         saver2.restore(sess, ckpt)
@@ -44,7 +46,8 @@ class AttentionModel(BaseAttentionModel):
             if var.op.name == "decoder/attention_wrapper/basic_lstm_cell/kernel":
                 var = tf.assign(
                     var,
-                    tf.concat([loaded_kernel[:640], tf.zeros([35, 2560]), loaded_kernel[640:]], axis=0))
+                    tf.concat([loaded_kernel[:512], tf.zeros([128, 2048]),
+                        loaded_kernel[512:]], axis=0))
 
             sess.run(var)
 
@@ -52,11 +55,9 @@ class AttentionModel(BaseAttentionModel):
         saver.restore(sess, ckpt)
 
     def _assign_input(self):
-        if self.eval_mode or self.train_mode:
-            ((self.input_filenames, self.inputs, self.input_seq_len), self.contexts, (self.target_labels, self.target_seq_len)) = \
-                self._iterator.get_next()
-        else:
-            ((self.input_filenames, self.inputs, self.input_seq_len), self.contexts) = self._iterator.get_next()
+        self.dlg_ids, (self.inputs, self.input_seq_len), (self.targets, self.target_seq_len), self.da_labels = self.iterator.get_next()
+        self.contexts_one_hot = tf.one_hot(self.da_labels, 43)
+        self.contexts = tf.layers.dense(self.contexts_one_hot, 128, name="context_embedding")
 
     def _train_decode_fn(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope):
         return super()._train_decode_fn_default(decoder_inputs, target_seq_len,

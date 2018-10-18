@@ -6,21 +6,17 @@ from .base import BaseInputData
 from ..utils import utils
 
 class BatchedInput(BaseInputData):
-    def __init__(self, hparams, mode):
-        BaseInputData.__init__(
-            self, hparams, mode,
-            mean_val_path="data/aps-sps/mean.dat",
-            var_val_path="data/aps-sps/var.dat")
-
+    def __init__(self, hparams, mode, batch_size, dev=False):
+        BaseInputData.__init__(self, hparams, mode, batch_size, dev)
+        
         inputs = []
         for line in open(self.data_filename, "r"):
-            if self.mode != tf.estimator.ModeKeys.PREDICT:
-                if line.strip() == "": continue
-                filename, target = line.strip().split(' ', 1)
-                inputs.append((filename, target))
-            else:
-                filename = line.strip()
-                inputs.append(filename)
+            if line.strip() == "": continue
+            filename, target = line.strip().split(' ', 1)
+            inputs.append({
+                'filename': filename, 
+                'target': target
+            })
 
         self.size = len(inputs)
         self.inputs = inputs
@@ -48,15 +44,16 @@ class BatchedInput(BaseInputData):
             return self.decoder_map[id].split('+')[0]
         else:
             return self.decoder_map[id]
+    
+    def get_inputs_list(self, field):
+        return [inp[field] for inp in self.inputs]
 
     def reset_iterator(self, sess, skip=0, shuffle=False, bucket_size=None):
         if shuffle: inputs = self.shuffle(self.inputs, bucket_size)
         else: inputs = self.inputs
         inputs = inputs[skip:]
 
-        filenames, targets = zip(*inputs)
-
         sess.run(self.iterator.initializer, feed_dict={
-            self.filenames: filenames,
-            self.targets: targets
+            self.filenames: self.get_inputs_list("filename"),
+            self.targets: self.get_inputs_list("target")
         })

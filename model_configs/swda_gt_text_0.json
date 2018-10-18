@@ -11,6 +11,7 @@
   "learning_rate": 1e-3,
   "batch_size": 70,
   "eval_batch_size": 70,
+  "max_epoch_num": 12,
 
   "da_input": "ground_truth",
   "da_word_encoder_type": "bilstm",

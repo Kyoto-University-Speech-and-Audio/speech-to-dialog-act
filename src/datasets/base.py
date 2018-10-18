@@ -11,6 +11,7 @@ class BaseInputData():
     def __init__(self,
                  hparams,
                  mode,
+                 batch_size,
                  dev=False,
                  mean_val_path=None,
                  var_val_path=None):
@@ -26,12 +27,11 @@ class BaseInputData():
 
         hparams.num_classes = self.num_classes
 
+        self.batch_size = tf.cast(batch_size, tf.int64)
         if self.mode == tf.estimator.ModeKeys.TRAIN:
             self.data_filename = hparams.train_data 
-            self.batch_size = hparams.batch_size
         elif self.mode == tf.estimator.ModeKeys.EVAL:
             self.data_filename = hparams.test_data if not dev else hparams.dev_data
-            self.batch_size = hparams.eval_batch_size
         else:
             self.data_filename = hparams.input_path
 
@@ -59,7 +59,7 @@ class BaseInputData():
     def get_batched_dataset(self, dataset):
         return utils.get_batched_dataset(
             dataset,
-            self.hparams.batch_size,
+            self.batch_size,
             self.hparams.num_features,
             #self.hparams.num_buckets,
             self.mode,
@@ -103,6 +103,7 @@ class BaseInputData():
         return dat
 
     def load_npy(self, filename):
+        #return np.array([[0.0]], dtype=np.float32)
         dat = np.load(filename.decode('utf-8')).astype(np.float32)
         return dat
 
@@ -126,9 +127,8 @@ class BaseInputData():
         """Decode from label ids to words"""
         ret = []
         for c in d:
-            if c <= 0: continue    
+            if c < 0: continue    
             if self.decoder_map[c] == '<eos>': return ret # sos
-            # ret += str(c) + " "
             if self.decoder_map[c] == '<sos>': continue
             val = self.get_word(c)
             ret.append(val if c in self.decoder_map else '?')

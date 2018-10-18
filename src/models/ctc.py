@@ -20,16 +20,26 @@ tf.logging.set_verbosity(tf.logging.INFO)
 tf.logging.info('test')
 
 class CTCModel(BaseModel):
-    num_classes = 3260 + 1
-    def __init__(self, hparams, mode, iterator):
-        BaseModel.__init__(self, hparams, mode, iterator)
-        self.num_classes = self.hparams.num_classes
-        if self.train_mode:
-            self.train_summary = tf.summary.merge([self.train_summary, tf.summary.scalar("train_label_error_rate", self.ler)])
+    def __init__(self):
+        super().__init__()
+
+    def __call__(self, hparams, mode, batched_input, **kwargs):
+        BaseModel.__call__(self, hparams, mode, batched_input, **kwargs)
+        return self
+
+    def get_ground_truth_label_placeholder(self): return [self.targets]
+    def get_predicted_label_placeholder(self): return [self.decoded[0]]
+
+    def _assign_input(self):
+        if self.eval_mode or self.train_mode:
+            ((self.input_filenames, self.inputs, self.input_seq_len), (self.targets, self.target_seq_len)) = \
+                self.iterator.get_next()
+        else:
+            self.input_filenames, self.inputs, self.input_seq_len = self.iterator.get_next()
 
     def _build_graph(self):
         # generate a SparseTensor required by ctc_loss op.
-        self.targets = ops_utils.sparse_tensor(self.target_labels, padding_value=-1)
+        self.targets = ops_utils.sparse_tensor(self.targets, padding_value=-1)
 
         cells_fw = [tf.contrib.rnn.LSTMCell(num_units) for _ in range(num_layers)]
         cells_bw = [tf.contrib.rnn.LSTMCell(num_units) for _ in range(num_layers)]
@@ -40,7 +50,7 @@ class CTCModel(BaseModel):
 
         # Reshaping to apply the same weights over the timesteps
         # outputs = tf.reshape(outputs, [-1, num_hidden])
-        logits = tf.layers.dense(outputs, self.num_classes)
+        logits = tf.layers.dense(outputs, self.hparams.num_classes)
         # Reshaping back to the original shape
         # logits = tf.reshape(logits, [hparams.batch_size, -1, self.num_classes])
 
@@ -61,31 +71,5 @@ class CTCModel(BaseModel):
 
         return self.loss
 
-    def train(self, sess):
-        # inputs, targets = sess.run([self.inputs, self.targets])
-        batch_lost, _, self.summary, _ler, dense_decoded, \
-            inputs, labels, inputs_len, labels_len, logits, global_step = \
-            sess.run([
-                self.loss,
-                self.update,
-                self.train_summary,
-                self.ler,
-                self.dense_decoded,
-                self.inputs, self.target_labels, self.input_seq_len,
-                self.target_seq_len, self.logits,
-                self.global_step
-            ])
-
-        return batch_lost, global_step
-
-    def eval(self, sess):
-        target_labels, loss, ler, decoded, summary = \
-            sess.run([
-                self.target_labels,
-                self.loss,
-                self.ler,
-                self.dense_decoded,
-                self.summary
-            ])
-        return target_labels, loss, decoded, summary
-
+    def get_extra_ops(self):
+        return []

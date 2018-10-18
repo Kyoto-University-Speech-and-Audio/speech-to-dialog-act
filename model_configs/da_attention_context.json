@@ -6,6 +6,7 @@
   "vocab_file": "data/swbd/vocab/words_swda.txt",
   "train_data": "data/swbd/inputs_swda_padding25_speaker_norm_train.txt",
   "eval_data": "data/swbd/inputs_swda_padding25_speaker_norm_test.txt",
+  "joint_training": true,
 
   "learning_rate": 1e-3,
   "batch_size": 40,
@@ -29,7 +30,7 @@
   "decoder_num_units": 512,
   "attention_num_units": 512,
   "attention_layer_size": 512,
-  "embedding_size": 256,
+  "embedding_size": 512,
   "output_attention": true,
   
   "beam_width": 0,

@@ -13,8 +13,12 @@ def get_batched_input_class(hparams):
         from ..datasets.aps import BatchedInput
     elif hparams.dataset == 'swbd':
         from ..datasets.swbd import BatchedInput
+    elif hparams.dataset == 'swbd_seg':
+        from ..datasets.swbd_seg import BatchedInput
     elif hparams.dataset == 'swda':
         from ..datasets.swda import BatchedInput
+    elif hparams.dataset == 'swda_seg':
+        from ..datasets.swda_seg import BatchedInput
     elif hparams.dataset == 'swbd_order':
         from ..datasets.swbd_order import BatchedInput
     elif hparams.dataset == 'swbd_order_speaker_change':
@@ -69,6 +73,10 @@ def get_model_class(hparams):
         from ..models.da import Model
     elif hparams.model == 'da_attention':
         from ..models.da_attention import Model
+    elif hparams.model == 'da_attention_seg':
+        from ..models.da_attention_seg import Model
+    elif hparams.model == 'da_utt_attention':
+        from ..models.da_utt_attention import Model
     return Model
 
 
@@ -199,6 +207,11 @@ def create_hparams(flags):
         train_size=None,
         eval_size=None,
         encoding="euc-jp",
+        output_result=_argval("output") or False,
+        result_output_file=None,
+        result_output_folder=None,
+        simulated=_argval("simulated") or False,
+        joint_training=False,
         
         # learning rate
         learning_rate_start_decay_epoch=10,
@@ -216,6 +229,9 @@ def create_hparams(flags):
         attention_num_units=128,
         output_attention=False,
         use_encoder_final_state=False,
+        append_sos_eos=True,
+        location_attention_width=25,
+        freeze_encoder=False,
 
         # dialog act
         da_word_encoder_type='bilstm',
@@ -235,7 +251,9 @@ def create_hparams(flags):
         length_penalty_weight=0.0,
 
         load=_argval('load'),
-        shuffle=_argval('shuffle')
+        shuffle=_argval('shuffle'),
+        sort_dataset=False,
+        batch_size_decay=False
     )
 
     if flags.config is not None:
@@ -262,3 +280,11 @@ def write_log(hparams, text, path=None):
     f = open(os.path.join(hparams.summaries_dir, path or configs.DEFAULT_LOG_PATH), 'a')
     f.write('\n'.join(text) + '\n')
     f.close()
+
+def prepare_output_path(hparams):
+    if hparams.output_result:
+        print("Output to %s" % hparams.result_output_file)
+        if os.path.exists(hparams.result_output_file):
+            os.remove(hparams.result_output_file)
+        if hparams.result_output_folder and not os.path.exists(hparams.result_output_folder):
+            os.mkdir(hparams.result_output_folder)

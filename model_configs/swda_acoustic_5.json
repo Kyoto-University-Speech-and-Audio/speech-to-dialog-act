@@ -1,12 +1,15 @@
 {
-  "name": "swda_acoustic_5",
+  "name": "swda_decoder_output_5",
   "model": "da",
   "dataset": "swda",
   "input_unit": "word",
   "vocab_file": "data/swbd/vocab/words_20.txt",
-  "train_data": "data/swbd/inputs_swda_padding25_speaker_norm_train.txt",
-  "dev_data": "data/swbd/inputs_swda_padding25_speaker_norm_dev.txt",
-  "test_data": "data/swbd/inputs_swda_padding25_speaker_norm_test.txt",
+  "train_data": "data/swbd/inputs_swda_padding25_speaker_norm_split20_train.txt",
+  "dev_data": "data/swbd/inputs_swda_padding25_speaker_norm_split20_dev.txt",
+  "test_data": "data/swbd/inputs_swda_padding25_speaker_norm_split20_test.txt",
+  "predicted_train_data": "swda_padding25_out_train.csv",
+  "predicted_dev_data": "swda_padding25_out_dev.csv",
+  "predicted_test_data": "swda_padding25_out_test.csv",
 
   "learning_rate": 1e-3,
   "batch_size": 70,
@@ -21,7 +24,7 @@
   "num_da_classes": 43,
   "dropout": 0.0,
   
-  "utt_encoder_num_units": 128,
+  "utt_encoder_num_units": 256,
   "embedding_size": 128,
   
   "learning_rate_start_decay_epoch": 4,

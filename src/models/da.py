@@ -32,21 +32,22 @@ class Model(BaseModel):
         if self.hparams.predicted_train_data is None:
             self.dlg_ids, (self.inputs, self.input_seq_len), \
             (self.targets, self.target_seq_len), \
-            self.da_labels = self._iterator.get_next()
+            self.da_labels = self.iterator.get_next()
         else:
             self.dlg_ids, (self.inputs, self.input_seq_len), \
             (self.targets, self.target_seq_len), \
             (self.predicted_texts, self.predicted_text_seq_len), \
             self.acoustic_inputs, \
-            self.da_labels = self._iterator.get_next()
+            self.da_labels = self.iterator.get_next()
 
     def get_ground_truth_label_placeholder(self): return [self.da_labels]
     def get_predicted_label_placeholder(self): return [self.predicted_da_labels]
 
     def _build_graph(self):
-        if self.hparams.da_input == "attention_context":
+        if self.hparams.da_input == "acoustic_input":
+            da_inputs = self.acoustic_inputs
             da_inputs = tf.layers.dense(self.acoustic_inputs, self.hparams.embedding_size)
-            da_input_len = self.predicted_text_seq_len
+            da_input_len = self.predicted_text_seq_len  
         elif self.hparams.da_input == "predicted_text":
             da_inputs = tf.one_hot(self.predicted_texts, self.hparams.num_classes)
             da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
@@ -55,7 +56,7 @@ class Model(BaseModel):
             da_inputs = tf.one_hot(self.targets, self.hparams.num_classes)
             da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
             da_input_len = self.target_seq_len
-        elif self.hparams.da_input == "context_target":
+        elif self.hparams.da_input == "combined":
             da_inputs1 = tf.layers.dense(self.acoustic_inputs,
                                          self.hparams.embedding_size / 2)
             da_input_len = self.predicted_text_seq_len
@@ -88,16 +89,16 @@ class Model(BaseModel):
 
     def _get_loss(self, encoded_history):
         # fully-connected layer
-        self.logits = tf.layers.dense(
+        self.da_logits = tf.layers.dense(
                 encoded_history, 
                 self.hparams.num_da_classes, name="logits"
         ) # [batch_size, num_da_classes]
 
         losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=self.da_labels,
-                logits=self.logits)
+                logits=self.da_logits)
 
-        return tf.reduce_mean(losses), tf.arg_max(self.logits, -1)
+        return tf.reduce_mean(losses), tf.arg_max(self.da_logits, -1)
 
     def _build_update_prev_inputs(self, targets):
         return tf.group([
@@ -231,7 +232,7 @@ class Model(BaseModel):
                 return outputs, state
 
     def get_extra_ops(self):
-        return self.update_prev_inputs
+        return [self.update_prev_inputs, self.da_logits]
 
     def eval(self, sess):
         target_labels, input_seq_len, loss, summary = sess.run([
@@ -260,6 +261,17 @@ class Model(BaseModel):
 
         return extra_ret
 
-    #@classmethod
-    #def ignore_save_variables(cls):
-    #    return ["prev_targets", "prev_target_seq_len", "prev_dlg_ids"]
+    @classmethod
+    def ignore_save_variables(cls):
+        #return []
+        return ["prev_targets", "prev_target_seq_len", "prev_dlg_ids"]
+    
+    def output_result(self, ground_truth_labels, predicted_labels, extra_ops):
+        for gt_da, pr_da, extra in zip(ground_truth_labels[0], predicted_labels[0],
+                extra_ops[1]):
+            with open(self.hparams.result_output_file, "a") as f:
+                f.write('\t'.join([
+                    str(gt_da),
+                    str(pr_da),
+                    ' '.join([str(f) for f in extra])
+                ]) + '\n')

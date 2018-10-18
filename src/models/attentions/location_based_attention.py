@@ -7,7 +7,7 @@ class LocationBasedAttention(_BaseAttentionMechanism):
                  memory, memory_sequence_length,
                  sharpening=False, smoothing=True,
                  use_location_based_attention=True,
-                 location_conv_size=(10, 101),
+                 location_conv_size=(10, 25),
                  scale=False):
         if not smoothing:
             probability_fn = lambda score, _: tf.nn.softmax(score)

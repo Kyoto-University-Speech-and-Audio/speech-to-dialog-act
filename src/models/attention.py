@@ -47,8 +47,8 @@ class AttentionModel(BaseModel):
         self._greedy_embedding_helper_fn = greedy_embedding_helper_fn
         self._alignment_history = force_alignment_history
 
-    def __call__(self, hparams, mode, iterator, **kwargs):
-        BaseModel.__call__(self, hparams, mode, iterator, **kwargs)
+    def __call__(self, hparams, mode, batched_input, **kwargs):
+        BaseModel.__call__(self, hparams, mode, batched_input, **kwargs)
 
         if self.infer_mode or self.eval_mode:
             attention_summary = self._get_attention_summary()
@@ -65,9 +65,9 @@ class AttentionModel(BaseModel):
     def _assign_input(self):
         if self.eval_mode or self.train_mode:
             ((self.input_filenames, self.inputs, self.input_seq_len), (self.targets, self.target_seq_len)) = \
-                self._iterator.get_next()
+                self.iterator.get_next()
         else:
-            self.input_filenames, self.inputs, self.input_seq_len = self._iterator.get_next()
+            self.input_filenames, self.inputs, self.input_seq_len = self.iterator.get_next()
 
     def _build_graph(self):
         if not self.infer_mode:
@@ -79,6 +79,7 @@ class AttentionModel(BaseModel):
                 target_labels,
                 tf.fill([self.batch_size, 1], self.hparams.eos_index)
             ], 1)
+            self.target_labels = target_labels
 
         # Projection layer
         self.output_layer = layers_core.Dense(self.hparams.num_classes, use_bias=False, name="output_projection")
@@ -254,7 +255,7 @@ class AttentionModel(BaseModel):
                 helper,
                 initial_state,
                 context=context,
-                output_layer=self.output_layer
+                _output_layer=self.output_layer
             )
 
         outputs, final_context_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(
@@ -270,11 +271,19 @@ class AttentionModel(BaseModel):
             self.hparams.attention_num_units,
             encoder_outputs,
             memory_sequence_length=self.input_seq_len,
-            scale=self.hparams.attention_energy_scale
+            scale=self.hparams.attention_energy_scale,
+            location_conv_size=(10, self.hparams.location_attention_width)
         )
 
     def _get_decoder_cell(self):
-        self._decoder_cell = model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode)
+        if self.hparams.num_decoder_layers == 1:
+            self._decoder_cell = model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode)
+        else:
+            cells = [model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode) for _ in
+                     range(self.hparams.num_decoder_layers)]
+            self._decoder_cell = tf.nn.rnn_cell.MultiRNNCell(cells)
+            #outputs, state = tf.nn.dynamic_rnn(cell, self.inputs, sequence_length=self.input_seq_len, dtype=tf.float32)
+
         return self._decoder_cell
 
     def _build_decoder(self, encoder_outputs, encoder_final_state):
@@ -307,6 +316,7 @@ class AttentionModel(BaseModel):
                 )
 
                 self.decoder_outputs = outputs.rnn_output
+                #self.decoder_states = outputs.
                 logits = self.output_layer(outputs.rnn_output)
                 sample_ids = tf.argmax(logits, axis=-1)
             else:
@@ -327,6 +337,9 @@ class AttentionModel(BaseModel):
         return logits, sample_ids, final_context_state
 
     def get_extra_ops(self):
+        return []
+        return [self.decoder_outputs]
+        #return tf.no_op()
         attention = tf.transpose(self.final_context_state.alignment_history.stack(), [1, 0, 2]) # [batch_size * target_max_len * T]
         attention = tf.expand_dims(attention, -1)
         encoder_outputs = tf.expand_dims(self.encoder_outputs, 1)
@@ -337,7 +350,7 @@ class AttentionModel(BaseModel):
             ),
             axis=2
         )
-        return da_inputs
+        return [da_inputs]
         #return tf.no_op()
 
     def eval(self, sess):
@@ -366,23 +379,13 @@ class AttentionModel(BaseModel):
                 plt.close()
 
         return input_filenames, target_labels[:, 1:-1], sample_ids, summary
-
-    def train(self, sess, extra_ops):
-        ret = sess.run([
-            self.inputs,
-            self.targets,
-            self.input_seq_len,
-            self.target_seq_len
-        ] + extra_ops)
-        inputs, targets, input_seq_len, target_seq_len, extra_ret = ret[0], ret[1], ret[2], ret[3], ret[4:]
-        if self.hparams.verbose:
-            print("\nprocessed_inputs_count: %d, global_step: %d" % (self.processed_inputs_count, self.global_step))
-            print("batch_size: %d, input_size: %d" % (len(inputs), len(inputs[0])))
-            print("input_seq_len", input_seq_len)
-            print("target_seq_len", target_seq_len)
-            print("target_size: %d" % (len(targets[0])))
-            print("target[0]:", targets[0])
-        return extra_ret
+    
+    def trainable_variables(self):
+        trainable_vars = tf.trainable_variables()
+        if self.hparams.freeze_encoder:
+            return list(filter(lambda var: var.op.name[:7] != "encoder", trainable_vars))
+        else:
+            return trainable_vars
 
     def _get_attention_summary(self):
         return None
@@ -404,3 +407,33 @@ class AttentionModel(BaseModel):
         attention_images *= 255
         attention_summary = tf.summary.image("attention_images", attention_images, max_outputs=1)
         return attention_summary
+    
+    @classmethod
+    def load(cls, sess, ckpt, flags):
+        saver_variables = tf.global_variables()
+        var_list = {}
+        for var in saver_variables:
+            if var.op.name[:7] == "encoder":
+                var_list[var.op.name] = var
+        saver = tf.train.Saver(var_list=var_list)
+        saver.restore(sess, ckpt)
+
+    def output_result(ground_truth_labels, predicted_labels, extra_ops):
+        target_ids = ground_truth_labels[0]
+        sample_ids = predicted_labels[0]
+        atts = extra_ops[0]
+        with open(self.hparams.result_output_file, "a") as f:
+            for ids1, ids2, att in zip(target_ids, sample_ids,
+                    atts):
+                _ids1 = [str(id) for id in ids1 if id < self.hparams.num_classes - 2]
+                _ids2 = [str(id) for id in ids2 if id < self.hparams.num_classes - 2]
+                fn = "%s/%d.npy" % (self.hparams.result_output_folder, self._eval_count)
+                f.write('\t'.join([
+                    #filename.decode(),
+                    ' '.join(_ids1),
+                    ' '.join(_ids2),
+                    #' '.join(self._batched_input_test.decode(ids2)),
+                    fn
+                ]) + '\n')
+                att = att[:len(_ids2), :]
+                np.save(fn, att)

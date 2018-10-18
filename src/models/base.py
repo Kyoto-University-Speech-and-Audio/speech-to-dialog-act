@@ -19,9 +19,7 @@ class BaseModel(object):
         self.infer_mode = self.mode == tf.estimator.ModeKeys.PREDICT
 
         self._batched_input = batched_input
-        # self.batch_size = hparams.batch_size
-        self.iterator = batched_input.iterator
-
+        self._assign_input()
         self.batch_size = tf.shape(self.inputs)[0]
 
         if self.train_mode:
@@ -56,20 +54,14 @@ class BaseModel(object):
 
     @property
     def iterator(self):
-        return self._iterator
-
-    @iterator.setter
-    def iterator(self, value):
-        self._iterator = value
-        self._assign_input()
-        self.batch_size = tf.shape(self.input_seq_len)[0]
+        return self._batched_input.iterator
 
     def _assign_input(self):
         if self.eval_mode or self.train_mode:
             ((self.input_filenames, self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
-                self._iterator.get_next()
+                self.iterator.get_next()
         else:
-            self.input_filenames, self.inputs, self.input_seq_len = self._iterator.get_next()
+            self.input_filenames, self.inputs, self.input_seq_len = self.iterator.get_next()
 
 
     def _build_graph(self):

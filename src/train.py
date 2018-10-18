@@ -36,6 +36,8 @@ def add_arguments(parser):
     parser.add_argument('--config', type=str, default=None)
     parser.add_argument('--dataset', type=str, default="aps")
     parser.add_argument('--load', type=str, default=None)
+    parser.add_argument('--output', type="bool", const=True, nargs="?", default=False)
+    parser.add_argument('--simulated', type="bool", const=True, nargs="?", default=False)
     parser.add_argument('--model', type=str, default="ctc-attention")
     parser.add_argument('--input_unit', type=str, default="char", help="word | char")
 
@@ -95,8 +97,9 @@ def load_model(sess, Model, hparams):
         else:
             saver_variables = tf.global_variables()
             var_list = {var.op.name: var for var in saver_variables}
-            for var in Model.ignore_save_variables():
-                print(var_list[var])
+            for var in Model.ignore_save_variables() + ['batch_size',
+                    'eval_batch_size', 'Variable_1',
+                    'apply_gradients/beta1_power', 'apply_gradients/beta2_power']:
                 if var in var_list:
                     del var_list[var]
             saver = tf.train.Saver(var_list=var_list)
@@ -132,9 +135,16 @@ def train(Model, BatchedInput, hparams):
         sess = tf.Session(graph=graph, config=config)
         if FLAGS.debug:
             sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+
         sess.run(tf.global_variables_initializer())
         sess.run(tf.tables_initializer())
         load_model(sess, Model, hparams)
+        
+        if argval("simulated"):
+            # not real training, only to export values
+            utils.prepare_output_path(hparams)
+            sess.run(tf.assign(trainer._global_step, 0))
+            sess.run(tf.assign(trainer._processed_inputs_count, 0))
 
         trainer.init(sess)
 
@@ -146,9 +156,9 @@ def train(Model, BatchedInput, hparams):
 
         last_save_step = trainer.global_step
         last_eval_pos = trainer.global_step - FLAGS.eval
-        epoch_batch_count = trainer.data_size // trainer.step_size
-
+        
         def reset_pbar():
+            epoch_batch_count = trainer.data_size // trainer.step_size
             pbar = tqdm(total=epoch_batch_count,
                     ncols=150,
                     unit="step",
@@ -163,25 +173,13 @@ def train(Model, BatchedInput, hparams):
         test_lers = {}
         min_test_lers = {}
         min_dev_test_lers = {}
+        
+        trainer.reset_train_iterator(sess)
 
         while True:
-            utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
+            #utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
             
-            loss, summary = trainer.train(sess)
-
-            if trainer.epoch > last_epoch:
-                pbar = reset_pbar()
-                last_epoch = trainer.epoch
-
-            writer.add_summary(summary, trainer.processed_inputs_count)
-            pbar.update(1)
-
-            if trainer.global_step - last_save_step >= FLAGS.save_steps:
-                save(hparams, sess, "epoch%d" % trainer.epoch)
-                last_save_step = trainer.global_step
-            
-            if trainer.epoch > hparams.max_epoch_num: break
-
+            # eval if needed
             if argval("eval") > 0:
                 if trainer.global_step - last_eval_pos >= FLAGS.eval:
                     pbar.set_postfix_str("Evaluating (dev)...")
@@ -206,22 +204,43 @@ def train(Model, BatchedInput, hparams):
                             tqdm.write("dev: %2.1f, test: %2.1f, acc: %2.1f" %
                                     (dev_lers[acc_id], test_lers[acc_id], min_test_lers[acc_id]))
                     
-                        for (err_id, lers) in [("dev", dev_lers), ("test", test_lers), ("min_test", min_test_lers)]:
-                            if lers is not None:
+                        for (err_id, lers) in [("dev", dev_lers), ("test", test_lers), ("min_test", min_dev_test_lers)]:
+                            if lers is not None and len(lers) > 0:
                                 writer.add_summary(
                                     tf.Summary(value=[tf.Summary.Value(simple_value=lers[acc_id],
                                         tag="%s_error_rate_%d" % (err_id, acc_id))]),
                                     trainer.processed_inputs_count)
 
                     last_eval_pos = trainer.global_step
+
+            loss, summary = trainer.train(sess)
+
+            if trainer.epoch > last_epoch: # reset epoch
+                pbar = reset_pbar()
+                last_epoch = trainer.epoch
+
+            writer.add_summary(summary, trainer.processed_inputs_count)
+            pbar.update(1)
+
+            if not argval("simulated") and trainer.global_step - last_save_step >= FLAGS.save_steps:
+                save(hparams, sess, "epoch%d" % trainer.epoch)
+                last_save_step = trainer.global_step
+            
+            if trainer.epoch > hparams.max_epoch_num: break
+
+            # reduce batch size with long input
+            if hparams.batch_size_decay:
+                if trainer.decay_batch_size(trainer.epoch_exact -
+                        trainer.epoch, sess):
+                    pbar = reset_pbar()
             
             # update postfix
             pbar_pf = {}
             for acc_id in test_lers:
-                pbar_pf["min_dev" + str(acc_id)] = "%2.1f" % (min_dev_test_lers[acc_id] * 100)
-                pbar_pf["min_test" + str(acc_id)] = "%2.1f" % (min_test_lers[acc_id] * 100)
-                pbar_pf["test" + str(acc_id)] = "%2.1f" % (test_lers[acc_id] * 100)
-                pbar_pf["dev" + str(acc_id)] = "%2.1f" % (dev_lers[acc_id] * 100)
+                if dev_lers is not None: pbar_pf["min_dev" + str(acc_id)] = "%2.2f" % (min_dev_test_lers[acc_id] * 100)
+                pbar_pf["min_test" + str(acc_id)] = "%2.2f" % (min_test_lers[acc_id] * 100)
+                pbar_pf["test" + str(acc_id)] = "%2.2f" % (test_lers[acc_id] * 100)
+                if dev_lers is not None: pbar_pf["dev" + str(acc_id)] = "%2.2f" % (dev_lers[acc_id] * 100)
             pbar_pf['cost'] = "%.3f" % (loss)
             pbar.set_postfix(pbar_pf)
 
