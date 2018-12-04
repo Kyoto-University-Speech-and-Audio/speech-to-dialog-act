@@ -28,28 +28,32 @@ If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolki
 
 A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
 
-# Training Examples
+# Examples
 
-## RNN with CTC loss
-
-```
-python -m src.train --config=ctc_aps_sps
-```
-
-## seq2seq with attention mechanism
+Train an RNN-based model with CTC loss
 
 ```
-python -m src.train --config=attention_aps_sps_char
+CUDA_VISIBLE_DEVICES=0,1 python -m src.train --config=ctc_aps_sps
+```
+
+Train an seq2seq model with attention mechanism
+
+```
+CUDA_VISIBLE_DEVICES=0,1 python -m src.train --config=attention_aps_sps_char
 # or
-python -m src.train --config=attention_aps_sps_word
+CUDA_VISIBLE_DEVICES=0,1 python -m src.train --config=attention_aps_sps_word
 ```
 
-# Inference
+Evaluate with last checkpoint
+
+```
+python -m src.eval --config=attention_aps_sps_char
+```
 
 Online inference
 
 ```
-python -m csp.infer_online --config=attention_aps_char
+python -m csp.infer_online --config=attention_aps_sps_char
 ```
 
 This command will launch a program on terminal which listens to microphone and decode each utterance separated by non-voice range. Used to check accuracy in real time.
@@ -122,20 +126,6 @@ New model should be subclassed from `BaseModel`, which handles loading hyper-par
 
 `AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional components or embeddings by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
 
-# Execution
-
-Train the model on SwitchBoard speech corpus with two GPUs 0 and 1
-
-```
-$ ./bin/train 0,1 --config=attention_swb_word
-```
-
-Eval your model
-
-```
-$ ./bin/eval 0 --config=attention_swb_word --load=best_0
-```
-
 # Results
 
 Results with sample configurations (not optimal configs):
@@ -151,8 +141,8 @@ Results with sample configurations (not optimal configs):
 - [x] CTC loss
 - [x] Attention mechanism
 - [x] Location-based attention
-- [] Joint CTC-attention
-- [] Tacotron2
+- [ ] Joint CTC-attention
+- [ ] Tacotron2
 
 # Others
 
