@@ -116,25 +116,25 @@ Default behaviour is training from last saved model. These method can be used fo
 
 `--debug`: run with tensorflow's debug mode
 
-# Customizing for experiments
+# Customization for experiments
 
 New model should be subclassed from `BaseModel`, which handles loading hyper-parameters.
 
 `AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional components or embeddings by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
 
-# Scripts
+# Execution
 
-To run trainer in background
-
-`./bin/train` will run trainer in background with nohup, which means your process will not be attached to terminal window
-
-Example:
+Train the model on SwitchBoard speech corpus with two GPUs 0 and 1
 
 ```
-./bin/train 0,1 --config=attention_swb_word
+$ ./bin/train 0,1 --config=attention_swb_word
 ```
 
-will train the SwitchBoard speech corpus on two GPUs 0 and 1
+Eval your model
+
+```
+$ ./bin/eval 0 --config=attention_swb_word --load=best_0
+```
 
 # Results
 
@@ -145,6 +145,14 @@ Results with sample configurations (not optimal configs):
 |`ctc_aps_sps.json`|ctc|combined CSJ-ASP & CSJ-SPS|char| - |
 |`attention_aps_sps_char.json`|attention-based|combined CSJ-ASP & CSJ-SPS | char | - |
 |`attention_aps_sps_word.json`|attention-based|combined CSJ-ASP & CSJ-SPS | word | - |
+
+# Checkpoint
+
+- [x] CTC loss
+- [x] Attention mechanism
+- [x] Location-based attention
+- [] Joint CTC-attention
+- [] Tacotron2
 
 # Others
 
