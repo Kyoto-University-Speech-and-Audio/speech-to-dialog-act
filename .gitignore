@@ -11,3 +11,10 @@ bin
 **/*.DS_Store
 src/tmp
 log/
+model_configs/private
+pretrained_models
+nohups
+
+src/models/private
+src/datasets/private
+src/preproc/private

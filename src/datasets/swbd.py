@@ -8,7 +8,6 @@ from ..utils import utils
 class BatchedInput(BaseInputData):
     def __init__(self, hparams, mode, batch_size, dev=False):
         BaseInputData.__init__(self, hparams, mode, batch_size, dev)
-        print(batch_size)
 
         inputs = []
         with open(self.data_filename, "r") as f:
@@ -17,24 +16,27 @@ class BatchedInput(BaseInputData):
                 if self.mode != tf.estimator.ModeKeys.PREDICT:
                     if line.strip() == "": continue
                     input = { headers[i]: dat for i, dat in enumerate(line.strip().split('\t')) } 
-                    if 'target' in input and self.hparams.append_sos_eos:
+                    if 'target' in input and self.hparams.use_sos_eos:
                         input['target'] = "%d %s %d" % (self.hparams.sos_index, input['target'], self.hparams.eos_index)
                     inputs.append(input)
 
             self.size = len(inputs)
-            if (self.hparams.sort_dataset):
+            if self.hparams.sort_dataset:
                 inputs.sort(key=lambda inp: inp['sound_len'])
 
             self.inputs = inputs
 
     def load_vocab(self, vocab_file):
         labels = [s.strip() for s in open(vocab_file, encoding=self.hparams.encoding)]
-        self.decoder_map = {id: label for id, label in enumerate(labels)}
-        self.num_classes = len(labels) + 2
-        self.hparams.eos_index = self.num_classes - 2
-        self.hparams.sos_index = self.num_classes - 1
-        self.decoder_map[self.num_classes - 2] = '<eos>'
-        self.decoder_map[self.num_classes - 1] = '<sos>'
+        self.vocab = {id: label for id, label in enumerate(labels)}
+        if self.hparams.use_sos_eos:
+            self.vocab_size = len(labels) + 2
+            self.hparams.eos_index = self.vocab_size - 2
+            self.hparams.sos_index = self.vocab_size - 1
+            self.vocab[self.vocab_size - 2] = '<eos>'
+            self.vocab[self.vocab_size - 1] = '<sos>'
+        else:
+            self.vocab_size = len(labels)
 
     def init_dataset(self):
         src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
@@ -55,18 +57,12 @@ class BatchedInput(BaseInputData):
         self.batched_dataset = self.get_batched_dataset(self.dataset)
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
-    def extract_target_features(self, str):
-        return [[int(x) for x in str.decode('utf-8').split(' ')]]
-
-    def get_inputs_list(self, field):
-        return [inp[field] for inp in self.inputs]
-
     def reset_iterator(self, sess, skip=0, shuffle=False, bucket_size=None):
         if shuffle: inputs = self.shuffle(self.inputs, bucket_size)
         else: inputs = self.inputs
         inputs = inputs[skip:]
         
         sess.run(self.iterator.initializer, feed_dict={
-            self.filenames: self.get_inputs_list('sound'),
-            self.targets: self.get_inputs_list('target')
+            self.filenames: self.get_inputs_list(inputs, 'sound'),
+            self.targets: self.get_inputs_list(inputs, 'target')
         })

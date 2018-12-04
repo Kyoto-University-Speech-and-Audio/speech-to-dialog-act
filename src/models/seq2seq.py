@@ -48,7 +48,7 @@ class AttentionModel(BaseModel):
 
     def _build_graph(self):
         if not self.infer_mode:
-            self.targets = tf.one_hot(self.target_labels, depth=self.hparams.num_classes)
+            self.targets = tf.one_hot(self.target_labels, depth=self.hparams.vocab_size)
             # remove <sos> in target labels to feed into output
             target_labels = tf.slice(self.target_labels, [0, 1],
                                      [self.batch_size, tf.shape(self.target_labels)[1] - 1])
@@ -58,7 +58,7 @@ class AttentionModel(BaseModel):
             ], 1)
 
         # Projection layer
-        self.output_layer = layers_core.Dense(self.hparams.num_classes, use_bias=False, name="output_projection")
+        self.output_layer = layers_core.Dense(self.hparams.vocab_size, use_bias=False, name="output_projection")
 
         encoder_outputs, encoder_state = self._build_encoder()
 
@@ -137,7 +137,7 @@ class AttentionModel(BaseModel):
             initial_state = decoder_cell.zero_state(batch_size, dtype=tf.float32)
 
         def embed_fn(ids):
-            return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.num_classes))
+            return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.vocab_size))
 
         if self.hparams.beam_width > 0:
             decoder = self._beam_search_decoder_cls(
@@ -188,7 +188,7 @@ class AttentionModel(BaseModel):
 
     def _build_decoder(self, encoder_outputs, encoder_final_state):
         with tf.variable_scope('decoder') as decoder_scope:
-            self.embedding_decoder = tf.diag(tf.ones(self.hparams.num_classes))
+            self.embedding_decoder = tf.diag(tf.ones(self.hparams.vocab_size))
 
             # decoder_initial_state = decoder_cell.zero_state(self.hparams.batch_size, dtype=tf.float32)\
             #    .clone(cell_state=encoder_final_state)
@@ -219,7 +219,7 @@ class AttentionModel(BaseModel):
 
                 if self.hparams.beam_width > 0:
                     sample_ids = outputs.predicted_ids[:, :, 0]
-                    logits = tf.one_hot(sample_ids, depth=self.hparams.num_classes)
+                    logits = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
                 else:
                     sample_ids = outputs.sample_id
                     logits = outputs.rnn_output

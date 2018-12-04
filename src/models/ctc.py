@@ -50,9 +50,9 @@ class CTCModel(BaseModel):
 
         # Reshaping to apply the same weights over the timesteps
         # outputs = tf.reshape(outputs, [-1, num_hidden])
-        logits = tf.layers.dense(outputs, self.hparams.num_classes)
+        logits = tf.layers.dense(outputs, self.hparams.vocab_size)
         # Reshaping back to the original shape
-        # logits = tf.reshape(logits, [hparams.batch_size, -1, self.num_classes])
+        # logits = tf.reshape(logits, [hparams.batch_size, -1, self.vocab_size])
 
         # Time major
         logits = tf.transpose(logits, (1, 0, 2))

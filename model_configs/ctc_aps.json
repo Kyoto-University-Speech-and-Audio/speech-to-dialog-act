@@ -1,7 +1,0 @@
-{
-    "name": "ctc_aps",
-    "model": "ctc",
-    "dataset": "aps",
-    
-    "beam_width": 4
-}

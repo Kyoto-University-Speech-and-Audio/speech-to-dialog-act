@@ -8,7 +8,7 @@ from ..utils import ops_utils, model_utils
 
 class Model(AttentionModel, DAModel):
     def __init__(self):
-        AttentionModel.__init__(self, force_alignment_history=True)
+        AttentionModel.__init__(self, force_alignment_history=False)
 
     def __call__(self, hparams, mode, iterator, **kwargs):
         super(AttentionModel, self).__call__(hparams, mode, iterator, **kwargs)
@@ -17,13 +17,21 @@ class Model(AttentionModel, DAModel):
     def _assign_input(self):
         self.dlg_ids, (self.inputs, self.input_seq_len), (self.targets, self.target_seq_len), self.da_labels = self.iterator.get_next()
     
-    def get_ground_truth_label_placeholder(self): 
-        return [self.targets, self.da_labels]
+    def get_ground_truth_label_placeholder(self): return [self.targets, self.da_labels]
 
-    def get_predicted_label_placeholder(self): 
-        return [self.sample_id, self.predicted_da_labels]
+    def get_predicted_label_placeholder(self): return [self.sample_id, self.predicted_da_labels]
 
-    def get_da_inputs(self):
+    def get_ground_truth_label_len_placeholder(self): return [self.target_seq_len, tf.constant(1)]
+
+    def get_predicted_label_len_placeholder(self): return [self.final_sequence_lengths, tf.constant(1)]
+
+    def get_decode_fns(self):
+        return [
+            lambda d: self._batched_input.decode(d),
+            lambda d: self._batched_input.decode_da(d)
+        ]
+
+    def get_da_inputs(self, beam_id=None):
         if self.hparams.da_input == "attention_context":
             attention = tf.transpose(self.final_context_state.alignment_history.stack(), [1, 0, 2]) # [batch_size * target_max_len * T]
             attention = tf.expand_dims(attention, -1)
@@ -63,21 +71,21 @@ class Model(AttentionModel, DAModel):
         elif self.hparams.da_input == "share_embedding":
             da_inputs1 = self.decoder_outputs
             da_inputs1 = tf.layers.dense(da_inputs1, self.hparams.embedding_size / 2)
-            da_inputs2 = self.decoder_emb_layer(tf.one_hot(self.sample_id, self.hparams.num_classes))
+            da_inputs2 = self.decoder_emb_layer(tf.one_hot(self.sample_id, self.hparams.vocab_size))
             da_inputs2 = tf.layers.dense(da_inputs2, self.hparams.embedding_size / 2)
             da_inputs = tf.concat([da_inputs1, da_inputs2], -1)
             da_input_len = self.final_sequence_lengths
         elif self.hparams.da_input == "predicted_text":
-            da_inputs = tf.one_hot(self.sample_id, self.hparams.num_classes)
+            da_inputs = tf.one_hot(self.sample_id, self.hparams.vocab_size)
             da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
             da_input_len = self.final_sequence_lengths
         elif self.hparams.da_input == "ground_truth":
             if self.train_mode:
-                da_inputs = tf.one_hot(self.targets, self.hparams.num_classes)
+                da_inputs = tf.one_hot(self.targets, self.hparams.vocab_size)
                 da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
                 da_input_len = self.target_seq_len
             else:
-                da_inputs = tf.one_hot(self.sample_id, self.hparams.num_classes)
+                da_inputs = tf.one_hot(self.sample_id, self.hparams.vocab_size)
                 da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
                 da_input_len = self.final_sequence_lengths
         elif self.hparams.da_input == "combined_attention":
@@ -95,9 +103,9 @@ class Model(AttentionModel, DAModel):
                     self.hparams.embedding_size / 2)
             da_input_len = self.final_sequence_lengths
                 
-            da_inputs2 = self.decoder_emb_layer(tf.one_hot(self.sample_id, self.hparams.num_classes))
+            da_inputs2 = self.decoder_emb_layer(tf.one_hot(self.sample_id, self.hparams.vocab_size))
             da_inputs2 = tf.layers.dense(da_inputs2, self.hparams.embedding_size / 2)
-            #da_inputs2 = tf.one_hot(self.sample_id, self.hparams.num_classes)
+            #da_inputs2 = tf.one_hot(self.sample_id, self.hparams.vocab_size)
             #da_inputs2 = tf.layers.dense(da_inputs2,
             #        self.hparams.embedding_size / 2)
             da_inputs = tf.concat([da_inputs1, da_inputs2], -1)
@@ -106,16 +114,16 @@ class Model(AttentionModel, DAModel):
             da_inputs1 = tf.layers.dense(da_inputs1,
                     self.hparams.embedding_size / 2)
             da_input_len = self.final_sequence_lengths
-            da_inputs2 = tf.one_hot(self.sample_id, self.hparams.num_classes)
+            da_inputs2 = tf.one_hot(self.sample_id, self.hparams.vocab_size)
             da_inputs2 = tf.layers.dense(da_inputs2,
                     self.hparams.embedding_size / 2)
             da_inputs = tf.concat([da_inputs1, da_inputs2], -1)
         elif self.hparams.da_input == "combined_decoder_output_sum":
-            da_inputs1 = self.decoder_outputs
+            da_inputs1 = self.decoder_outputs if beam_id is None else self.decoder_outputs[beam_id]
             da_inputs1 = tf.layers.dense(da_inputs1,
                     self.hparams.embedding_size)
             da_input_len = self.final_sequence_lengths
-            da_inputs2 = tf.one_hot(self.sample_id, self.hparams.num_classes)
+            da_inputs2 = tf.one_hot(self.sample_id, self.hparams.vocab_size)
             da_inputs2 = tf.layers.dense(da_inputs2,
                     self.hparams.embedding_size)
             da_inputs = tf.concat(da_inputs1 + da_inputs2, -1)
@@ -124,12 +132,14 @@ class Model(AttentionModel, DAModel):
             da_inputs1 = tf.layers.dense(da_inputs1,
                     self.hparams.embedding_size)
             da_input_len = self.final_sequence_lengths
-            da_inputs2 = tf.one_hot(self.sample_id, self.hparams.num_classes)
+            da_inputs2 = tf.one_hot(self.sample_id, self.hparams.vocab_size)
             da_inputs2 = tf.layers.dense(da_inputs2,
                     self.hparams.embedding_size)
 
-            confidence = tf.max(tf.nn.softmax(self.logits), -1)  # batch_size * max_len
-            da_inputs = tf.concat(da_inputs1 * (1 - confidence) + da_inputs2 * confidence, -1)
+            confidence = tf.reduce_max(tf.nn.softmax(self.logits), -1,
+                    keep_dims=True)  # batch_size * max_len
+            da_inputs = da_inputs1 * (1 - confidence) + da_inputs2 * confidence
+            #da_inputs = da_inputs1 + da_inputs2
 
         return da_inputs, da_input_len
 
@@ -156,13 +166,18 @@ class Model(AttentionModel, DAModel):
 
             loss_da, self.predicted_da_labels = self._get_loss(encoded_history)
             with tf.control_dependencies([loss_da]):
-                self.update_prev_inputs = self._build_update_prev_inputs(da_inputs)
+                self.update_prev_inputs = self._build_update_prev_inputs(da_inputs, da_input_len)
         
-        loss = self.hparams.da_attention_lambda * loss_asr + (1 - self.hparams.da_attention_lambda) * loss_da
+        if loss_asr == 0.0:
+            loss = loss_da
+        else:
+            loss = self.hparams.da_attention_lambda * loss_asr + (1 - self.hparams.da_attention_lambda) * loss_da
         return loss
 
     @classmethod
     def load(cls, sess, ckpt, flags):
+        super().load(sess, ckpt, flags)
+        return
         saver_variables = tf.global_variables()
         var_list = {}
 
@@ -189,15 +204,19 @@ class Model(AttentionModel, DAModel):
     def get_extra_ops(self):
         return [self.da_logits]
     
-    def output_result(self, ground_truth_labels, predicted_labels, extra_ops):
-        for gt_text, gt_da, pr_text, pr_da, extra in zip(ground_truth_labels[0], ground_truth_labels[1],
-                predicted_labels[0], predicted_labels[1], extra_ops[0]):
-            gt_text = [str(id) for id in gt_text if id < self.hparams.num_classes - 2]
-            pr_text = [str(id) for id in pr_text if id < self.hparams.num_classes - 2]
-            with open(self.hparams.result_output_file, "a") as f:
+    def output_result(self, ground_truth_labels, predicted_labels,
+            ground_truth_label_len, predicted_label_len, extra_ops, eval_count):
+        with open(self.hparams.result_output_file, "a") as f:
+            for gt_text, gt_da, pr_text, pr_da, extra in zip(ground_truth_labels[0], ground_truth_labels[1],
+                    predicted_labels[0], predicted_labels[1], extra_ops[0]):
+                gt_text = [str(id) for id in gt_text if id <
+                        self.hparams.vocab_size - 2]
+                pr_text = [str(id) for id in pr_text if id <
+                        self.hparams.vocab_size - 2]
+                print(self.hparams.result_output_file)
                 f.write('\t'.join([
-                    ' '.join(gt_text),
-                    ' '.join(pr_text),
+                    #' '.join(gt_text),
+                    #' '.join(pr_text),
                     str(gt_da),
                     str(pr_da),
                     ' '.join([str(f) for f in extra])

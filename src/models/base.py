@@ -6,12 +6,21 @@ WARMUP_STEPS = 0
 WARMUP_SCHEME = 't2t'
 DECAY_SCHEME = ''
 
+
 class BaseModel(object):
     def __call__(self,
                  hparams,
                  mode,
                  batched_input,
                  **kwargs):
+        """
+
+        :param hparams:
+        :param mode:
+        :param batched_input: instance of BatchedInput
+        :param kwargs:
+        :return:
+        """
         self.hparams = hparams
         self.mode = mode
         self.train_mode = self.mode == tf.estimator.ModeKeys.TRAIN
@@ -31,15 +40,8 @@ class BaseModel(object):
 
         self.saver = tf.train.Saver(tf.global_variables())
 
-    def _get_trainable_params(self, **kwargs):
-        if "trainable_scope" in kwargs:
-            return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=kwargs['trainable_scope'])
-        else:
-            return tf.trainable_variables()
-
     def _build_train_model(self, hparams, **kwargs):
         self.loss = self._build_graph()
-        #self.params = self._get_trainable_params(**kwargs)
 
     def _build_eval_model(self):
         self.loss = self._build_graph()
@@ -57,50 +59,52 @@ class BaseModel(object):
         return self._batched_input.iterator
 
     def _assign_input(self):
+        """
+        Override this to implement your input variables
+        :return:
+        """
         if self.eval_mode or self.train_mode:
             ((self.input_filenames, self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
                 self.iterator.get_next()
         else:
             self.input_filenames, self.inputs, self.input_seq_len = self.iterator.get_next()
 
-
     def _build_graph(self):
+        """
+        Override this to build your model
+        :return:
+        """
         pass
 
     @classmethod
     def load(cls, sess, ckpt, flags):
+        """
+        Load with --transfer. Override this to implement your own transfer learning.
+        :param sess:
+        :param ckpt:
+        :param flags:
+        :return:
+        """
         saver_variables = tf.global_variables()
-        #if flags.load_ignore_scope:
-        #    for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
-        #        saver_variables.remove(var)
 
         var_list = {var.op.name: var for var in saver_variables}
         del var_list['Variable_1']
-
-        var_map = {
-            # "decoder/decoder_emb_layer/kernel": "decoder/dense/kernel",
-            # "decoder/decoder_emb_layer/bias": "decoder/dense/bias",
-            # "decoder/decoder_emb_layer/bias/Adam": "decoder/dense/bias/Adam",
-            # "decoder/decoder_emb_layer/bias/Adam_1": "decoder/dense/bias/Adam_1",
-            # "decoder/decoder_emb_layer/kernel/Adam": "decoder/dense/kernel/Adam",
-            # "decoder/decoder_emb_layer/kernel/Adam_1": "decoder/dense/kernel/Adam_1",
-        }
-
-        # fine-tuning for context
-        # print(var_list)
-        # del var_list["decoder/attention_wrapper/basic_lstm_cell/kernel"]
-
-        for it in var_map:
-            var_list[var_map[it]] = var_list[it]
-        # del var_list[it]
 
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
 
     @classmethod
     def ignore_save_variables(cls):
+        """
+        List of variables that won't be saved in checkpoint
+        :return:
+        """
         return []
 
     @classmethod
     def trainable_variables(cls):
+        """
+        List of variables that will be trained. Exclude some parameters if you want to freeze certain parts of the model
+        :return:
+        """
         return tf.trainable_variables()

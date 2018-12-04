@@ -1,6 +1,0 @@
-{
-    "name": "attention_char",
-    "model": "attention",
-    
-    "beam_width": 0
-}

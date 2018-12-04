@@ -3,6 +3,7 @@ import tensorflow as tf
 DROPOUT = 0.2
 FORGET_BIAS = 1.0
 
+
 def gradient_clip(gradients, max_gradient_norm):
     """Clipping gradients of a model."""
     clipped_gradients, gradient_norm = tf.clip_by_global_norm(
@@ -12,6 +13,7 @@ def gradient_clip(gradients, max_gradient_norm):
         tf.summary.scalar("clipped_gradient", tf.global_norm(clipped_gradients)))
 
     return clipped_gradients, gradient_norm_summary, gradient_norm
+
 
 def single_cell(unit_type, num_units, mode, forget_bias=FORGET_BIAS, dropout=DROPOUT,
                  residual_connection=False, device_str=None, residual_fn=None):

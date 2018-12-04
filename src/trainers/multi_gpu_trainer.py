@@ -115,6 +115,9 @@ class MultiGPUTrainer(Trainer):
     def train(self, sess):
         model = self._train_models[0]
         try:
+            #np.set_printoptions(threshold=np.nan)
+            #print(sess.run([model.da_labels, model.test]))
+            
             ret = sess.run([
                     self._processed_inputs_count,
                     self.loss,
@@ -133,24 +136,26 @@ class MultiGPUTrainer(Trainer):
             summary = ret[3]
 
             if self.hparams.output_result:
-                target_ids = ret[-3]
-                sample_ids = ret[-2]
-                atts = ret[-1]
+                target_ids = ret[-4]
+                sample_ids = ret[-3]
+                encoder_outputs = ret[-2]
+                encoder_state = ret[-1]
                 with open(self.hparams.result_output_file, "a") as f:
-                    for ids1, ids2, att in zip(target_ids, sample_ids,
-                            atts):
-                        _ids1 = [str(id) for id in ids1 if id < self.hparams.num_classes - 2]
-                        _ids2 = [str(id) for id in ids2 if id < self.hparams.num_classes - 2]
-                        fn = "%s/%d.npy" % (self.hparams.result_output_folder, self._eval_count)
+                    for ids1, ids2, eo, es in zip(target_ids, sample_ids,
+                            encoder_outputs, encoder_state):
+                        _ids1 = [str(id) for id in ids1 if id < self.hparams.vocab_size - 2]
+                        _ids2 = [str(id) for id in ids2 if id < self.hparams.vocab_size - 2]
+                        fn_eo = "%s/eo_%d.npy" % (self.hparams.result_output_folder, self._eval_count)
+                        fn_es = "%s/es_%d.npy" % (self.hparams.result_output_folder, self._eval_count)
                         f.write('\t'.join([
-                            #filename.decode(),
                             ' '.join(_ids1),
                             ' '.join(_ids2),
                             #' '.join(self._batched_input_test.decode(ids2)),
-                            fn
+                            fn_eo,
+                            fn_es
                         ]) + '\n')
-                        att = att[:len(_ids2), :]
-                        np.save(fn, att)
+                        np.save(fn_eo, eo)
+                        np.save(fn_es, es)
                         self._eval_count += 1
 
             #if self.hparams.verbose:
@@ -165,15 +170,6 @@ class MultiGPUTrainer(Trainer):
             return self.train(sess)
 
         return loss, summary
-
-    def eval(self, sess, dev=False):
-        model = self.dev_model if dev else self.test_model
-        target_labels, sample_ids, summary = sess.run([
-            model.get_ground_truth_label_placeholder(),
-            model.get_predicted_label_placeholder(),
-            self._eval_summary
-        ])
-        return target_labels, sample_ids, summary
 
     @property
     def global_step(self):

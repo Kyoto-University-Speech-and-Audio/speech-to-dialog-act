@@ -12,9 +12,9 @@ Experimental speech recognition library
 - `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
 - `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
 
-# Preparing Data
+# Data Preparation
 
-Default loader will load data from one single file with following syntax
+Default loader will load data from one single file with following syntax (you can define your own inputting method in `src/datasets`)
 
 ```
 <path_to_audio_file> <sequence_of_target_labels>
@@ -24,22 +24,22 @@ where `<path_to_audio_file>` can by `wav`, `htk` or `npy` file that contains ori
 
 If you use `wav`, path to HTK Speech Recognition Toolkit binary file must be provided in source code.
 
-A vocabulary files must also be prepared with each line having syntax as `<word> <id>`. See below for model configurations.
+A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
 
 # Training Examples
 
 ## RNN with CTC loss
 
 ```
-python -m csp.train --config=ctc --dataset=aps
+python -m src.train --config=ctc --dataset=aps
 ```
 
 ## seq2seq with attention mechanism
 
 ```
-python -m csp.train --config=attention_char --dataset=aps
+python -m src.train --config=attention_aps_sps_char
 # or
-python -m csp.train --config=attention_word --dataset=aps
+python -m src.train --config=attention_aps_sps_word
 ```
 
 # Inference
@@ -50,7 +50,7 @@ Online inference
 python -m csp.infer_online --config=attention_aps_char
 ```
 
-This command will launch a program on terminal which listens to microphone and decode each utterance separated by non-voice range. Used to check accuracy in practice.
+This command will launch a program on terminal which listens to microphone and decode each utterance separated by non-voice range. Used to check accuracy in real time.
 
 # Training & Evaluation Arguments
 
@@ -60,9 +60,8 @@ This command will launch a program on terminal which listens to microphone and d
 
 ```
 {
-  "name": "attention_word",
   "model": "attention",
-  "dataset": "aps",
+  "input": "aps",
   "input_unit": "word",
   "vocab_file": "data/aps/words.txt",
   "train_data": "data/aps/train.txt",
@@ -102,8 +101,6 @@ Default behaviour is training from last saved model. These method can be used fo
 
 `--batch_size` (default: 32)
 
-`--gpus`: Use `MultiGPUTrainer` instead of `Trainer`. `MultiGPUTrainer` stores parameter values on CPU and calculate loss on GPUs before combining results for each step.
-
 `--shuffle`: Shuffle data after each epoch
 
 ## Evaluation
@@ -120,7 +117,7 @@ Default behaviour is training from last saved model. These method can be used fo
 
 New model should be subclassed from `BaseModel`, which handles loading hyper-parameters.
 
-`AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional parts or values by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
+`AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional components or embeddings by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
 
 # Scripts
 
@@ -131,7 +128,7 @@ To run trainer in background
 Example:
 
 ```
-./bin/train 0,1 --config=attention_swb_word --gpus
+./bin/train 0,1 --config=attention_swb_word
 ```
 
 will train SwitchBoard speech corpus on two GPUs 0 and 1
@@ -139,3 +136,11 @@ will train SwitchBoard speech corpus on two GPUs 0 and 1
 # Result on large-scale dataset
 
 Attention model achieved state-of-the-art result for end-to-end model on different world-class datasets.
+
+# Others
+
+You can refer to my article for an intuitive explanation on how attention mechanism works
+
+[Sequence to sequence learning with attention mechanism](https://medium.com/@viettrungdang/sequence-to-sequence-learning-with-attention-mechanism-a8964b5e301e)
+
+Most of the datasets are not public, but you have access to any, you can refer to my preprocessing code in `src/preproc`. The code is written inside a Jupyter Notebook for easy debug but not so well-organized.

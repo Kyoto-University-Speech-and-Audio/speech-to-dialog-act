@@ -32,47 +32,48 @@ class Model(BaseModel):
         if self.hparams.predicted_train_data is None:
             self.dlg_ids, (self.inputs, self.input_seq_len), \
             (self.targets, self.target_seq_len), \
-            self.da_labels = self.iterator.get_next()
+            (self.da_labels, self.da_label_len) = self.iterator.get_next()
         else:
             self.dlg_ids, (self.inputs, self.input_seq_len), \
             (self.targets, self.target_seq_len), \
             (self.predicted_texts, self.predicted_text_seq_len), \
-            self.acoustic_inputs, \
-            self.da_labels = self.iterator.get_next()
+            (self.da_labels, self.da_label_len) = self.iterator.get_next()
 
-    def get_ground_truth_label_placeholder(self): return [self.da_labels]
-    def get_predicted_label_placeholder(self): return [self.predicted_da_labels]
+    def get_ground_truth_label_placeholder(self): return [self.targets, self.da_labels]
+    def get_predicted_label_placeholder(self): 
+        if self.hparams.da_input == "ground_truth":
+            return [self.targets, self.predicted_da_labels]
+        if self.hparams.da_input == "predicted_text":
+            return [self.predicted_texts, self.predicted_da_labels]
+
     def get_ground_truth_label_len_placeholder(self): 
-        return [tf.constant(1)]
-    def get_predicted_label_len_placeholder(self): 
-        return [tf.constant(1)]
+        return [self.target_seq_len, self.da_label_len]
     
+    def get_predicted_label_len_placeholder(self): 
+        if self.hparams.da_input == "ground_truth":
+            return [self.target_seq_len, self.target_seq_len]
+        elif self.hparams.da_input == "predicted_text":
+            return [self.predicted_text_seq_len, self.predicted_text_seq_len]
+
     def get_decode_fns(self):
         return [
-            lambda d: [str(d)]
+            lambda d: self._batched_input.decode(d),
+            lambda d: ["<I>" if _d == 1 else "<E>" for _d in d]
         ]
 
+
     def _build_graph(self):
-        if self.hparams.da_input == "acoustic_input":
-            da_inputs = self.acoustic_inputs
-            da_inputs = tf.layers.dense(self.acoustic_inputs, self.hparams.embedding_size)
-            da_input_len = self.predicted_text_seq_len  
+        if self.hparams.da_input == "ground_truth":
+            da_inputs = tf.one_hot(self.targets, self.hparams.vocab_size)
+            da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
+            da_input_len = self.target_seq_len
+            tf.assert_equal(tf.shape(self.targets)[1], tf.shape(self.da_labels)[1])
         elif self.hparams.da_input == "predicted_text":
             da_inputs = tf.one_hot(self.predicted_texts, self.hparams.vocab_size)
             da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
             da_input_len = self.predicted_text_seq_len
-        elif self.hparams.da_input == "ground_truth":
-            da_inputs = tf.one_hot(self.targets, self.hparams.vocab_size)
-            da_inputs = tf.layers.dense(da_inputs, self.hparams.embedding_size)
-            da_input_len = self.target_seq_len
-        elif self.hparams.da_input == "combined":
-            da_inputs1 = tf.layers.dense(self.acoustic_inputs,
-                                         self.hparams.embedding_size / 2)
-            da_input_len = self.predicted_text_seq_len
-            da_inputs2 = tf.one_hot(self.predicted_texts, self.hparams.vocab_size)
-            da_inputs2 = tf.layers.dense(da_inputs2,
-                                         self.hparams.embedding_size / 2)
-            da_inputs = tf.concat([da_inputs1, da_inputs2], -1)
+        self.da_inputs = da_inputs
+        self.da_input_len = da_input_len
 
         history_targets, history_target_seq_len, history_seq_len = self._build_history(
                 da_inputs,
@@ -80,34 +81,33 @@ class Model(BaseModel):
                 dtype=tf.float32
         )
 
-        history_inputs = self._build_word_encoder(
+        target_outputs = self._build_word_encoder(
                 history_targets,
                 history_target_seq_len,
         )
 
-        if self.hparams.num_utt_history != 0:
-            encoded_history = self._build_utt_encoder(history_inputs, history_seq_len)
-        else:
-            encoded_history = tf.reduce_min(history_inputs, 1)
-
-        loss, self.predicted_da_labels = self._get_loss(encoded_history)
+        loss, self.predicted_da_labels = self._compute_da_loss(target_outputs)
         with tf.control_dependencies([loss]):
             self.update_prev_inputs = self._build_update_prev_inputs(da_inputs, da_input_len)
 
         return loss
 
-    def _get_loss(self, encoded_history):
+    def _compute_da_loss(self, target_outputs):
         # fully-connected layer
         self.da_logits = tf.layers.dense(
-                encoded_history, 
+                target_outputs, 
                 self.hparams.num_da_classes, name="logits"
         ) # [batch_size, num_da_classes]
 
-        losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                labels=self.da_labels,
-                logits=self.da_logits)
-
-        return tf.reduce_mean(losses), tf.arg_max(self.da_logits, -1)
+        if self.train_mode:
+            cross_ent = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                    labels=self.da_labels,
+                    logits=self.da_logits)
+            target_weights = tf.sequence_mask(self.da_label_len,
+                    tf.shape(self.da_logits)[1], dtype=self.da_logits.dtype)
+            return tf.reduce_mean(cross_ent * target_weights), tf.arg_max(self.da_logits, -1)
+        else:
+            return tf.constant(0.0), tf.argmax(self.da_logits, -1)
 
     def _build_update_prev_inputs(self, targets, target_seq_len):
         return tf.group([
@@ -116,18 +116,6 @@ class Model(BaseModel):
             tf.assign(self.prev_target_seq_len, target_seq_len, validate_shape=False),
             #tf.assign(self.prev_speakers, self.speakers)
         ])
-
-
-    def _build_utt_encoder(self, history_inputs, history_input_seq_len):
-        # encoder at utterance-level
-        history_encoder_outputs, history_encoder_state = tf.nn.dynamic_rnn(
-                model_utils.single_cell("lstm",
-                    self.hparams.utt_encoder_num_units, self.mode,
-                    dropout=self.hparams.dropout), 
-                history_inputs, 
-                sequence_length=history_input_seq_len,
-                dtype=tf.float32)
-        return history_encoder_state[0]
 
     def _build_word_encoder(
             self, 
@@ -140,7 +128,7 @@ class Model(BaseModel):
             history_target_seq_len: size [batch_size, history_len + 1]
 
         Returns:
-            history_inputs: size [batch_size, history_len + 1, num_hidden_units] 
+            history_inputs: size [batch_size, target_seq_len, num_hidden_units] 
                 tensor of encoded utterances per batch
         """
         shape1 = tf.shape(history_targets)[0] # batch_size
@@ -148,14 +136,17 @@ class Model(BaseModel):
         shape3 = tf.shape(history_targets)[2] # target_max_len
 
         # flatten history to feed into encoder at word-level
-        utt_inputs = tf.reshape(history_targets, [shape1 * shape2, shape3, self.hparams.embedding_size])
-        utt_input_seq_len = tf.reshape(history_target_seq_len, [shape1 * shape2])
+        utt_inputs = tf.reshape(history_targets, [shape1, shape2 * shape3, self.hparams.embedding_size])
+        utt_input_seq_len = tf.reduce_sum(history_target_seq_len, 1)
 
         if embedding_fn is not None: utt_inputs = embedding_fn(utt_inputs)
-        sent_encoder_outputs, sent_encoder_state = self._build_da_word_encoder(utt_inputs, utt_input_seq_len)
-        
+        sent_encoder_outputs, _ = self._build_da_word_encoder(utt_inputs, utt_input_seq_len)
+
         # prepare input for encoder at utterance-level
-        history_inputs = tf.reshape(sent_encoder_state[-1][0], [shape1, shape2, self.hparams.da_word_encoder_num_units])
+        history_inputs = tf.reshape(sent_encoder_outputs, [shape1, shape2, shape3, self.hparams.da_word_encoder_num_units])
+        history_inputs = history_inputs[:, -1, :tf.shape(self.da_inputs)[1], :]
+        history_inputs = tf.reshape(history_inputs, [shape1, -1,
+            self.hparams.da_word_encoder_num_units])
 
         return history_inputs
 
@@ -243,35 +234,30 @@ class Model(BaseModel):
     def get_extra_ops(self):
         return [self.update_prev_inputs, self.da_logits]
 
-    def train(self, sess, extra_ops):
-        ret = sess.run([
-            self.inputs,
-            self.targets,
-            self.input_seq_len,
-            self.get_extra_ops(),
-        ] + extra_ops)
-
-        inputs, target_labels, input_seq_len, extra_ret = ret[0], ret[1], ret[2], ret[-len(extra_ops):]
-
-        if self.hparams.verbose:
-            print("\nprocessed_inputs_count: %d, global_step: %d" % (self.processed_inputs_count, self.global_step))
-            print("batch_size: %d, input_size: %d" % (len(inputs), len(inputs[0])))
-            print("input_seq_len", input_seq_len)
-
-        return extra_ret
-
     @classmethod
     def ignore_save_variables(cls):
         #return []
         return ["prev_targets", "prev_target_seq_len", "prev_dlg_ids"]
     
     def output_result(self, ground_truth_labels, predicted_labels,
-            ground_truth_label_len, predicted_label_len, extra_ops, eval_count):
-        for gt_da, pr_da, extra in zip(ground_truth_labels[0], predicted_labels[0],
+            ground_truth_label_len, predicted_label_len,  extra_ops, eval_count):
+        for gt, pr, gt_da, pr_da, gt_len, pr_len, extra in zip(ground_truth_labels[0], predicted_labels[0],
+                ground_truth_labels[1], predicted_labels[1],
+                ground_truth_label_len[0], predicted_label_len[0],
                 extra_ops[1]):
             with open(self.hparams.result_output_file, "a") as f:
+                gt_da = gt_da[:gt_len]
+                pr_da = pr_da[:pr_len]
+                gt = gt[:gt_len]
+                pr = pr[:pr_len]
+                eot_id = 27287
+                p = []
+                for _p, _pda in zip(pr, pr_da):
+                    p.append(_p)
+                    if _pda == 2: p.append(eot_id)
+
                 f.write('\t'.join([
-                    str(gt_da),
-                    str(pr_da),
-                    ' '.join([str(f) for f in extra])
+                    '0',
+                    ' '.join([str(_p) for _p in p]),
+                    'none'
                 ]) + '\n')

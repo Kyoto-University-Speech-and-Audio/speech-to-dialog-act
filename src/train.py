@@ -5,6 +5,7 @@ import random
 import numpy as np
 import sys
 import shutil
+import json
 from . import configs
 from .utils import utils
 from tqdm import tqdm
@@ -14,6 +15,7 @@ from tensorflow.python import debug as tf_debug
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
+
 
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
@@ -25,10 +27,10 @@ def add_arguments(parser):
     parser.add_argument('--debug', type="bool", const=True, nargs="?", default=False)
     parser.add_argument('--shuffle', type="bool", const=True, nargs="?", default=False,
                         help="Shuffle dataset")
-    parser.add_argument('--eval', type=int, default=1000,
+    parser.add_argument('--eval', type=int, default=0,
                         help="Frequently check and log evaluation result")
-    parser.add_argument('--gpus', type="bool", const=True, nargs="?", default=False,
-                        help="Use MultiGPUTrainer")
+    parser.add_argument('--eval_from', type=int, default=0,
+                        help="No. of epoch before eval")
     parser.add_argument('--transfer', type="bool", const=True, nargs="?", default=False,
                         help="If model needs custom load.")
 
@@ -60,50 +62,18 @@ def load_model(sess, Model, hparams):
 
     if ckpt:
         if FLAGS.transfer:
-            """
-            saver_variables = tf.global_variables()
-            
-            var_list = {var.op.name: var for var in saver_variables}
-            del var_list["apply_gradients/beta1_power"]
-            del var_list["apply_gradients/beta2_power"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/bias/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/bias/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_0/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_1/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/bw/basic_lstm_cell/kernel/Adam_1"]
-            del var_list["stack_bidirectional_rnn/cell_2/bidirectional_rnn/fw/basic_lstm_cell/kernel/Adam_1"]
-            saver = tf.train.Saver(var_list)
-            saver.restore(sess, ckpt)
-            """
             Model.load(sess, ckpt, FLAGS)
         else:
             saver_variables = tf.global_variables()
             var_list = {var.op.name: var for var in saver_variables}
             for var in Model.ignore_save_variables() + ['batch_size',
-                    'eval_batch_size', 'Variable_1',
-                    'apply_gradients/beta1_power', 'apply_gradients/beta2_power']:
+                                                        'eval_batch_size', 'Variable_1',
+                                                        'apply_gradients/beta1_power', 'apply_gradients/beta2_power']:
                 if var in var_list:
                     del var_list[var]
             saver = tf.train.Saver(var_list=var_list)
             saver.restore(sess, ckpt)
+
 
 def save(hparams, sess, name=None):
     path = os.path.join(
@@ -113,19 +83,17 @@ def save(hparams, sess, name=None):
     saver.save(sess, path)
     if hparams.verbose: print("Saved as csp.%s.ckpt" % (name))
 
+
 def argval(name):
     return utils.argval(name, FLAGS)
+
 
 def train(Model, BatchedInput, hparams):
     hparams.beam_width = 0
     graph = tf.Graph()
     mode = tf.estimator.ModeKeys.TRAIN
     with graph.as_default():
-        new_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='decoder/correction')
-        init_new_vars = tf.initialize_variables(new_vars)
-
-        if FLAGS.gpus: trainer = MultiGPUTrainer(hparams, Model, BatchedInput, mode)
-        else: trainer = Trainer(hparams, Model, BatchedInput, mode)
+        trainer = MultiGPUTrainer(hparams, Model, BatchedInput, mode)
         trainer.build_model(eval=argval("eval") != 0)
 
         config = tf.ConfigProto()
@@ -138,8 +106,9 @@ def train(Model, BatchedInput, hparams):
 
         sess.run(tf.global_variables_initializer())
         sess.run(tf.tables_initializer())
+
         load_model(sess, Model, hparams)
-        
+
         if argval("simulated"):
             # not real training, only to export values
             utils.prepare_output_path(hparams)
@@ -156,13 +125,13 @@ def train(Model, BatchedInput, hparams):
 
         last_save_step = trainer.global_step
         last_eval_pos = trainer.global_step - FLAGS.eval
-        
+
         def reset_pbar():
             epoch_batch_count = trainer.data_size // trainer.step_size
             pbar = tqdm(total=epoch_batch_count,
-                    ncols=150,
-                    unit="step",
-                    initial=trainer.epoch_progress)
+                        ncols=150,
+                        unit="step",
+                        initial=trainer.epoch_progress)
             pbar.set_description('Epoch %i' % trainer.epoch)
             return pbar
 
@@ -173,20 +142,21 @@ def train(Model, BatchedInput, hparams):
         test_lers = {}
         min_test_lers = {}
         min_dev_test_lers = {}
-        
+
         trainer.reset_train_iterator(sess)
 
         while True:
-            #utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
-            
+            # utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
+
             # eval if needed
-            if argval("eval") > 0:
+            if argval("eval") > 0 and argval("eval_from") < trainer.epoch_exact
+                or argval("eval") == 0 and trainer.epoch > last_epoch:
                 if trainer.global_step - last_eval_pos >= FLAGS.eval:
                     pbar.set_postfix_str("Evaluating (dev)...")
                     dev_lers = trainer.eval_all(sess, dev=True)
                     pbar.set_postfix_str("Evaluating (test)...")
                     test_lers = trainer.eval_all(sess, dev=False)
-                    
+
                     for acc_id in test_lers:
                         if dev_lers is None:
                             if acc_id not in min_test_lers or min_test_lers[acc_id] > test_lers[acc_id]:
@@ -200,22 +170,24 @@ def train(Model, BatchedInput, hparams):
                                 min_dev_lers[acc_id] = dev_lers[acc_id]
                                 min_dev_test_lers[acc_id] = test_lers[acc_id]
                                 save(hparams, sess, "best_%d" % acc_id)
-                            
+
                             tqdm.write("dev: %2.1f, test: %2.1f, acc: %2.1f" %
-                                    (dev_lers[acc_id], test_lers[acc_id], min_test_lers[acc_id]))
-                    
+                                       (dev_lers[acc_id], test_lers[acc_id], min_test_lers[acc_id]))
+
                         for (err_id, lers) in [("dev", dev_lers), ("test", test_lers), ("min_test", min_dev_test_lers)]:
                             if lers is not None and len(lers) > 0:
                                 writer.add_summary(
                                     tf.Summary(value=[tf.Summary.Value(simple_value=lers[acc_id],
-                                        tag="%s_error_rate_%d" % (err_id, acc_id))]),
+                                                                       tag="%s_error_rate_%d" % (err_id, acc_id))]),
                                     trainer.processed_inputs_count)
 
                     last_eval_pos = trainer.global_step
 
             loss, summary = trainer.train(sess)
 
-            if trainer.epoch > last_epoch: # reset epoch
+            # return
+
+            if trainer.epoch > last_epoch:  # reset epoch
                 pbar = reset_pbar()
                 last_epoch = trainer.epoch
 
@@ -225,15 +197,15 @@ def train(Model, BatchedInput, hparams):
             if not argval("simulated") and trainer.global_step - last_save_step >= FLAGS.save_steps:
                 save(hparams, sess, "epoch%d" % trainer.epoch)
                 last_save_step = trainer.global_step
-            
+
             if trainer.epoch > hparams.max_epoch_num: break
 
             # reduce batch size with long input
             if hparams.batch_size_decay:
                 if trainer.decay_batch_size(trainer.epoch_exact -
-                        trainer.epoch, sess):
+                                            trainer.epoch, sess):
                     pbar = reset_pbar()
-            
+
             # update postfix
             pbar_pf = {}
             for acc_id in test_lers:
@@ -246,10 +218,19 @@ def train(Model, BatchedInput, hparams):
 
 
 def main(unused_argv):
-    hparams = utils.create_hparams(FLAGS)
+    if FLAGS.config is None: 
+        raise Exception("Config file must be provided")
+    
+    json_file = open('model_configs/%s.json' % FLAGS.config).read()
+    json_dict = json.loads(json_file)
+    BatchedInput = utils.get_batched_input_class(json_dict.get("input", "default"))
+    Model = utils.get_model_class(json_dict.get("model"))
+    
+    hparams = utils.create_hparams(FLAGS, Model)
     hparams.hcopy_path = configs.HCOPY_PATH
     hparams.hcopy_config = os.path.join(configs.HCOPY_CONFIG_PATH)
 
+    # create directories for logs and saved parameters
     if not os.path.exists(hparams.summaries_dir): os.mkdir(hparams.summaries_dir)
     if not os.path.exists(hparams.out_dir): os.mkdir(hparams.out_dir)
     utils.clear_log(hparams)
@@ -258,9 +239,6 @@ def main(unused_argv):
     if random_seed is not None and random_seed > 0:
         random.seed(random_seed)
         np.random.seed(random_seed)
-
-    BatchedInput = utils.get_batched_input_class(hparams)
-    Model = utils.get_model_class(hparams)
 
     train(Model, BatchedInput, hparams)
 

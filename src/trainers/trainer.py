@@ -43,7 +43,7 @@ class Trainer(object):
                     tf.estimator.ModeKeys.EVAL, self.eval_batch_size, dev=False)
             batched_input_test.init_dataset()
 
-        self.hparams.num_classes = (batched_input_train or batched_input_test).num_classes
+        self.hparams.vocab_size = (batched_input_train or batched_input_test).vocab_size
 
         self._processed_inputs_count = tf.Variable(0, trainable=False)
         self.processed_inputs_count = 0
@@ -130,7 +130,7 @@ class Trainer(object):
                 skip=self.processed_inputs_count % self.data_size,
                 #shuffle=self.epoch > 5
             )
-            self._train_model.assign_input()
+            self._train_model._assign_input()
 
     def print_logs(self):
         print("# Variables")
@@ -162,21 +162,25 @@ class Trainer(object):
             self.processed_inputs_count = ret[0]
 
             if self.hparams.result_output_file:
-                target_ids = ret[-3]
-                sample_ids = ret[-2]
-                atts = ret[-1]
+                target_ids = ret[-4]
+                sample_ids = ret[-3]
+                encoder_outputs = ret[-2]
+                encoder_state = ret[-1]
+                #atts = ret[-1]
                 with open(self.hparams.result_output_file, "a") as f:
-                    for ids1, ids2, att, filename in zip(target_ids, sample_ids,
-                            atts, ret[2]):
-                        _ids1 = [str(id) for id in ids1 if id < self.hparams.num_classes - 2]
-                        _ids2 = [str(id) for id in ids2 if id < self.hparams.num_classes - 2]
-                        fn = "%s/%d.npy" % (self.hparams.result_output_folder, self._eval_count)
+                    for ids1, ids2, eo, es, filename in zip(target_ids, sample_ids,
+                            eo, es, ret[2]):
+                        _ids1 = [str(id) for id in ids1 if id < self.hparams.vocab_size - 2]
+                        _ids2 = [str(id) for id in ids2 if id < self.hparams.vocab_size - 2]
+                        fn_eo = "%s/eo_%d.npy" % (self.hparams.result_output_folder, self._eval_count)
+                        fn_es = "%s/es_%d.npy" % (self.hparams.result_output_folder, self._eval_count)
                         f.write('\t'.join([
                             filename.decode(),
                             ' '.join(_ids1),
                             ' '.join(_ids2),
                             #' '.join(self._batched_input_test.decode(ids2)),
-                            fn
+                            fn_eo,
+                            fn_es
                         ]) + '\n')
                         att = att[:len(_ids2), :]
                         np.save(fn, att)
@@ -196,22 +200,27 @@ class Trainer(object):
         ret = sess.run(
             model.get_ground_truth_label_placeholder() + \
             model.get_predicted_label_placeholder() + \
+            model.get_ground_truth_label_len_placeholder() + \
+            model.get_predicted_label_len_placeholder() + \
             #[model.input_filenames] + \
             [
                 model.loss, self._eval_summary,
             ] + model.get_extra_ops()
         )
-        print(ret[0], ret[2])
 
         if self.hparams.output_result:
             model.output_result(
                 ret[:num_acc],
                 ret[num_acc:2*num_acc],
-                ret[-len(model.get_extra_ops()):]
+                ret[2 * num_acc:3 * num_acc], 
+                ret[3 * num_acc:4 * num_acc],
+                ret[-len(model.get_extra_ops()):],
+                self._eval_count
             )
             self._eval_count += len(ret[0])
 
-        return None, ret[:num_acc], ret[num_acc:2 * num_acc]
+        return None, ret[:num_acc], ret[num_acc:2 * num_acc], \
+            ret[2 * num_acc:3 * num_acc], ret[3 * num_acc:4 * num_acc]
 
     def eval_all(self, sess, dev=False):
         """
@@ -221,23 +230,37 @@ class Trainer(object):
             dictionary of key: id, value: accuracy
         """
         lers = {}
+        decode_fns = self.test_model.get_decode_fns()
+        metrics = self.hparams.metrics.split(',')
+
         batched_input = self._batched_input_dev if dev else self._batched_input_test
         if batched_input is None: return None
         batched_input.reset_iterator(sess)
         while True:
             try:
-                ground_truth_labels, predicted_labels, _ = self.eval(sess, dev)
-                for acc_id, (gt_labels, p_labels) in enumerate(zip(ground_truth_labels, predicted_labels)):
+                _, ground_truth_labels, predicted_labels, ground_truth_len, predicted_len = self.eval(sess, dev)
+                for acc_id, (gt_labels, p_labels, gt_len, p_len) in \
+                        enumerate(zip(ground_truth_labels, predicted_labels, ground_truth_len, predicted_len)):
                     if acc_id not in lers: lers[acc_id] = []
                     for i in range(len(gt_labels)):
-                        ler, _, _ = ops_utils.calculate_ler(
-                            gt_labels[i], p_labels[i],
-                            batched_input.decode, acc_id)
+                        if acc_id == 1 and self.hparams.model == "da_attention_seg":
+                            ler, str_original, str_decoded = ops_utils.joint_evaluate(
+                                self.hparams,
+                                ground_truth_labels[0][i], predicted_labels[0][i],
+                                ground_truth_labels[1][i], predicted_labels[1][i],
+                                decode_fns[acc_id],
+                            )
+                        else:
+                            ler, _, _ = ops_utils.evaluate(
+                                gt_labels[i],#[:gt_len[i]],
+                                p_labels[i],#[:p_len[i]],
+                                decode_fns[acc_id],
+                                metrics[acc_id], acc_id)
                         if ler is not None: lers[acc_id].append(ler)
             except tf.errors.OutOfRangeError:
                 break
 
-        return { acc_id: sum(lers[acc_id]) / len(lers[acc_id]) for acc_id in lers }
+        return {acc_id: sum(lers[acc_id]) / len(lers[acc_id]) for acc_id in lers}
 
     def _get_learning_rate_warmup(self, hparams):
         return self.learning_rate

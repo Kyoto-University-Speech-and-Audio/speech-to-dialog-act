@@ -42,7 +42,7 @@ class Model(BaseModel):
 
     def _build_graph(self):
         # Projection layer
-        self.output_layer = layers_core.Dense(self.hparams.num_classes, use_bias=False, name="output_projection")
+        self.output_layer = layers_core.Dense(self.hparams.vocab_size, use_bias=False, name="output_projection")
 
         encoder_outputs, encoder_state = self._build_encoder()
 
@@ -180,7 +180,7 @@ class Model(BaseModel):
             initial_state = self._attention_cell.zero_state(batch_size, dtype=tf.float32)
 
         def embed_fn(ids):
-            return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.num_classes))
+            return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.vocab_size))
 
         if self.hparams.beam_width > 0:
             decoder = self._beam_search_decoder_cls(

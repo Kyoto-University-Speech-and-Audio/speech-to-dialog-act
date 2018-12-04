@@ -36,7 +36,16 @@ class AttentionModel(BaseModel):
                  eval_decode_fn=None,
                  attention_wrapper_fn=tf.contrib.seq2seq.AttentionWrapper,
                  greedy_embedding_helper_fn=tf.contrib.seq2seq.GreedyEmbeddingHelper,
-                 force_alignment_history=True):
+                 force_alignment_history=False):
+        """
+        :param attention_fn:
+        :param beam_search_decoder_cls:
+        :param train_decode_fn:
+        :param eval_decode_fn:
+        :param attention_wrapper_fn:
+        :param greedy_embedding_helper_fn:
+        :param force_alignment_history:
+        """
         super().__init__()
         self._attention_fn = attention_fn or self._attention_fn_default
         self._beam_search_decoder_cls = beam_search_decoder_cls
@@ -60,7 +69,38 @@ class AttentionModel(BaseModel):
         return self
     
     def get_ground_truth_label_placeholder(self): return [self.targets]
+
     def get_predicted_label_placeholder(self): return [self.sample_id]
+
+    def get_ground_truth_label_len_placeholder(self): return [self.target_seq_len]
+
+    def get_predicted_label_len_placeholder(self): return [self.final_sequence_lengths]
+    
+    def get_decode_fns(self):
+        return [
+            lambda d: self._batched_input.decode(d, None)
+        ]
+
+    @classmethod
+    def get_default_params(cls):
+        return {
+            "forced_decoding": False,  # whether BasicDecoder is used for evaluation
+            "use_sos_eos": True,
+            "use_seg_tag": False,
+            "sos_index": None,
+            "eos_index": None,
+            "encoder_type": 'bilstm',
+            "decoder_num_units": 512,
+            "encoder_num_units": 512,
+            "attention_layer_size": 512,
+            "attention_energy_scale": False,
+            "attention_num_units": 128,
+            "output_attention": False,
+            "use_encoder_final_state": False,
+            "location_attention_width": 25,
+            "freeze_encoder": False,
+            "tag_weight": 0,
+        }
     
     def _assign_input(self):
         if self.eval_mode or self.train_mode:
@@ -71,7 +111,7 @@ class AttentionModel(BaseModel):
 
     def _build_graph(self):
         if not self.infer_mode:
-            self.one_hot_targets = tf.one_hot(self.targets, depth=self.hparams.num_classes)
+            self.one_hot_targets = tf.one_hot(self.targets, depth=self.hparams.vocab_size)
             # remove <sos> in target labels to feed into output
             target_labels = tf.slice(self.targets, [0, 1],
                                      [self.batch_size, tf.shape(self.targets)[1] - 1])
@@ -82,10 +122,11 @@ class AttentionModel(BaseModel):
             self.target_labels = target_labels
 
         # Projection layer
-        self.output_layer = layers_core.Dense(self.hparams.num_classes, use_bias=False, name="output_projection")
+        self.output_layer = layers_core.Dense(self.hparams.vocab_size, use_bias=False, name="output_projection")
 
         encoder_outputs, encoder_state = self._build_encoder()
         self.encoder_outputs = encoder_outputs
+        self.encoder_final_state = encoder_state
 
         logits, self.sample_id, self.final_context_state = \
             self._build_decoder(encoder_outputs, encoder_state)
@@ -101,20 +142,23 @@ class AttentionModel(BaseModel):
 
     def _compute_loss(self, logits, target_labels):
         if self.eval_mode:
-            max_size = tf.maximum(tf.shape(target_labels)[1], tf.shape(logits)[1])
-            _target_labels = tf.pad(target_labels, [[0, 0], [0, max_size - tf.shape(target_labels)[1]]])
-            _logits = tf.pad(logits, [[0, 0], [0, max_size - tf.shape(logits)[1]], [0, 0]])
-            cross_ent = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                labels=_target_labels,
-                logits=_logits)
-            # target_weights = tf.sequence_mask(self.target_seq_len, self.max_time, dtype=logits.dtype)
-            return tf.reduce_mean(cross_ent)
+            return tf.constant(0.0)
         else:
             cross_ent = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=target_labels,
                 logits=logits)
+            sample_id = tf.reduce_max(logits, -1)
             target_weights = tf.sequence_mask(self.target_seq_len, self.max_time, dtype=logits.dtype)
-            return tf.reduce_mean(cross_ent * target_weights)
+            if self.hparams.tag_weight == 0:
+                return tf.reduce_mean(cross_ent * target_weights)
+            else:
+                tag_weights = tf.cast(tf.logical_and(tf.logical_and(
+                    target_labels >= self._batched_input.tag_start, 
+                    target_labels <= self._batched_input.tag_end,
+                ), tf.cast(target_weights, tf.bool)), tf.float32)
+                return tf.reduce_mean(cross_ent * target_weights + \
+                        cross_ent * tag_weights * self.hparams.tag_weight)
+
 
     def _build_encoder(self):
         #if True:
@@ -174,9 +218,9 @@ class AttentionModel(BaseModel):
                 print(state)
                 return outputs, state
 
-    def _get_attention_cell(self, decoder_cell, encoder_outputs):
-        if self._attention_cell is not None: return self._attention_cell
-        attention_mechanism = self._attention_fn(encoder_outputs)
+    def _get_attention_cell(self, decoder_cell, encoder_outputs, input_seq_len):
+        # if self._attention_cell is not None: return self._attention_cell
+        attention_mechanism = self._attention_fn(input_seq_len, encoder_outputs)
 
         cell = self._attention_wrapper_fn(
             decoder_cell, attention_mechanism,
@@ -184,11 +228,14 @@ class AttentionModel(BaseModel):
             alignment_history=self._alignment_history,
             output_attention=self.hparams.output_attention
         )
-        self._attention_cell = cell
         return cell
 
     def _train_decode_fn_default(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope, context=None):
-        self._attention_cell = self._get_attention_cell(decoder_cell, encoder_outputs)
+        self._attention_cell = self._get_attention_cell(
+            decoder_cell,
+            encoder_outputs,
+            self.input_seq_len
+        )
 
         if initial_state is None:
             initial_state = self._attention_cell.zero_state(self.batch_size, dtype=tf.float32)
@@ -209,19 +256,21 @@ class AttentionModel(BaseModel):
         if self.hparams.beam_width > 0:
             encoder_outputs = tf.contrib.seq2seq.tile_batch(
                 encoder_outputs, multiplier=self.hparams.beam_width)
-            self.input_seq_len = tf.contrib.seq2seq.tile_batch(
+            print(self.input_seq_len)
+            input_seq_len = tf.contrib.seq2seq.tile_batch(
                 self.input_seq_len, multiplier=self.hparams.beam_width)
             batch_size = self.batch_size * self.hparams.beam_width
         else:
+            input_seq_len = self.input_seq_len
             batch_size = self.batch_size
 
-        self._get_attention_cell(decoder_cell, encoder_outputs)
+        self._attention_cell = self._get_attention_cell(decoder_cell, encoder_outputs, input_seq_len)
 
         if initial_state == None:
             initial_state = self._attention_cell.zero_state(batch_size, dtype=tf.float32)
 
         def embed_fn(ids):
-            return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.num_classes))
+            return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.vocab_size))
 
         if self.hparams.beam_width > 0:
             decoder = self._beam_search_decoder_cls(
@@ -266,11 +315,11 @@ class AttentionModel(BaseModel):
 
         return outputs, final_context_state, final_sequence_lengths
 
-    def _attention_fn_default(self, encoder_outputs):
+    def _attention_fn_default(self, input_seq_len, encoder_outputs):
         return LocationBasedAttention(
             self.hparams.attention_num_units,
             encoder_outputs,
-            memory_sequence_length=self.input_seq_len,
+            memory_sequence_length=input_seq_len,
             scale=self.hparams.attention_energy_scale,
             location_conv_size=(10, self.hparams.location_attention_width)
         )
@@ -282,21 +331,17 @@ class AttentionModel(BaseModel):
             cells = [model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode) for _ in
                      range(self.hparams.num_decoder_layers)]
             self._decoder_cell = tf.nn.rnn_cell.MultiRNNCell(cells)
-            #outputs, state = tf.nn.dynamic_rnn(cell, self.inputs, sequence_length=self.input_seq_len, dtype=tf.float32)
 
         return self._decoder_cell
 
     def _build_decoder(self, encoder_outputs, encoder_final_state):
         with tf.variable_scope('decoder') as decoder_scope:
-            self.embedding_decoder = tf.diag(tf.ones(self.hparams.num_classes))
+            self.embedding_decoder = tf.diag(tf.ones(self.hparams.vocab_size))
 
-            # decoder_initial_state = decoder_cell.zero_state(self.hparams.batch_size, dtype=tf.float32)\
-            #    .clone(cell_state=encoder_final_state)
-            # decoder_initial_state = encoder_final_state
             decoder_cell = self._get_decoder_cell()
             self.decoder_emb_layer = tf.layers.Dense(self.hparams.decoder_num_units, name="decoder_emb_layer")
 
-            if self.train_mode:
+            if self.train_mode or self.hparams.forced_decoding:
                 decoder_emb_inp = self.decoder_emb_layer(self.one_hot_targets)
 
                 if self.hparams.use_encoder_final_state:
@@ -316,9 +361,9 @@ class AttentionModel(BaseModel):
                 )
 
                 self.decoder_outputs = outputs.rnn_output
-                #self.decoder_states = outputs.
                 logits = self.output_layer(outputs.rnn_output)
-                sample_ids = tf.argmax(logits, axis=-1)
+                #sample_ids = tf.argmax(logits, axis=-1)
+                sample_ids = self.target_labels
             else:
                 outputs, final_context_state, self.final_sequence_lengths = self._eval_decode_fn(
                     initial_state=None,
@@ -327,8 +372,34 @@ class AttentionModel(BaseModel):
                     scope=decoder_scope)
 
                 if self.hparams.beam_width > 0:
-                    sample_ids = outputs.predicted_ids[:, :, 0]
-                    logits = tf.one_hot(sample_ids, depth=self.hparams.num_classes)
+                    _outputs = []
+
+                    """
+                    for i in range(1): #range(self.hparams.beam_width):
+                        sample_ids = outputs.predicted_ids[:, :, i]
+                        sample_ids = tf.pad(
+                            sample_ids, 
+                            tf.constant([[0, 0], [1, 0]]), 
+                            constant_values=self.hparams.sos_index
+                        )
+                        one_hot = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
+                        with tf.variable_scope("beam_outputs"):
+                            _outputs.append(self._train_decode_fn(
+                                self.decoder_emb_layer(one_hot),
+                                self.final_sequence_lengths[i],
+                                initial_state=None,
+                                encoder_outputs=encoder_outputs,
+                                decoder_cell=decoder_cell,
+                                scope=decoder_scope
+                            ))
+                    self.decoder_outputs = _outputs[0][0].rnn_output
+                    self.final_sequence_lengths = _outputs[0][2]
+                    sample_ids = _outputs[0][0].sample_id
+                    print(self.decoder_outputs)
+                    logits = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
+                    """
+                    sample_ids = outputs.predicted_ids[:, :, 4]
+                    logits = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
                 else:
                     self.decoder_outputs = outputs.rnn_output
                     sample_ids = outputs.sample_id
@@ -337,6 +408,7 @@ class AttentionModel(BaseModel):
         return logits, sample_ids, final_context_state
 
     def get_extra_ops(self):
+        return [self.encoder_outputs, self.encoder_final_state]
         return []
         return [self.decoder_outputs]
         #return tf.no_op()
@@ -353,33 +425,6 @@ class AttentionModel(BaseModel):
         return [da_inputs]
         #return tf.no_op()
 
-    def eval(self, sess):
-        return None
-        input_filenames, target_labels, input_seq_len, loss, sample_ids, summary, images = sess.run([
-            self.input_filenames,
-            self.targets,
-            self.input_seq_len,
-            self.loss,
-            self.sample_id,
-            self.summary, self.attention_images
-        ])
-        
-        if images is not None:
-            for i in range(len(input_filenames)):
-                id = os.path.basename(input_filenames[i].decode('utf-8')).split('.')[0]
-                img = (1 - images[i]) * 255
-                target_seq_len = np.where(sample_ids[i] == 1)[0][0] if len(np.where(sample_ids[i] == 1)[0]) > 0 else -1
-                img = img[:target_seq_len, :input_seq_len[i]]
-                fig = plt.figure(figsize=(20, 2))
-                ax = fig.add_subplot(111)
-                ax.imshow(img, aspect="auto")
-                ax.set_title(id)
-                ax.set_yticks(np.arange(0, target_seq_len, 5))
-                fig.savefig(os.path.join(self.hparams.summaries_dir, "alignments", id + ".png"))
-                plt.close()
-
-        return input_filenames, target_labels[:, 1:-1], sample_ids, summary
-    
     def trainable_variables(self):
         trainable_vars = tf.trainable_variables()
         if self.hparams.freeze_encoder:
@@ -412,22 +457,32 @@ class AttentionModel(BaseModel):
     def load(cls, sess, ckpt, flags):
         saver_variables = tf.global_variables()
         var_list = {}
+        for var in saver_variables: print(var.op.name)
         for var in saver_variables:
-            if var.op.name[:7] == "encoder":
-                var_list[var.op.name] = var
+            var_list[var.op.name] = var
+            if var.op.name in ["asr/decoder/beam_outputs/memory_layer/kernel"]:
+                del var_list[var.op.name]
+        #    if var.op.name[:7] == "encoder":
+        #        var_list[var.op.name] = var
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
 
-    def output_result(ground_truth_labels, predicted_labels, extra_ops):
+        sess.run([
+            tf.assign(sess.graph.get_tensor_by_name("asr/decoder/beam_outputs/memory_layer/kernel:0"),
+                sess.graph.get_tensor_by_name("asr/decoder/memory_layer/kernel:0"))
+        ])
+
+    def output_result(self, ground_truth_labels, predicted_labels,
+            ground_truth_label_len, predicted_label_len, extra_ops, eval_count):
         target_ids = ground_truth_labels[0]
         sample_ids = predicted_labels[0]
         atts = extra_ops[0]
         with open(self.hparams.result_output_file, "a") as f:
             for ids1, ids2, att in zip(target_ids, sample_ids,
                     atts):
-                _ids1 = [str(id) for id in ids1 if id < self.hparams.num_classes - 2]
-                _ids2 = [str(id) for id in ids2 if id < self.hparams.num_classes - 2]
-                fn = "%s/%d.npy" % (self.hparams.result_output_folder, self._eval_count)
+                _ids1 = [str(id) for id in ids1 if id < self.hparams.vocab_size - 2]
+                _ids2 = [str(id) for id in ids2 if id < self.hparams.vocab_size - 2]
+                fn = "%s/%d.npy" % (self.hparams.result_output_folder, eval_count)
                 f.write('\t'.join([
                     #filename.decode(),
                     ' '.join(_ids1),

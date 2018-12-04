@@ -25,7 +25,7 @@ class BaseInputData():
             var = open(var_val_path).read().split('\n')[:-1]
             self.var = np.array([float(x) for x in var])
 
-        hparams.num_classes = self.num_classes
+        hparams.vocab_size = self.vocab_size
 
         self.batch_size = tf.cast(batch_size, tf.int64)
         if self.mode == tf.estimator.ModeKeys.TRAIN:
@@ -53,8 +53,8 @@ class BaseInputData():
 
     def load_vocab(self, vocab_file):
         labels = [s.strip().split(' ', 1) for s in open(vocab_file, encoding=self.hparams.encoding)]
-        self.decoder_map = {int(label[1]): label[0] for label in labels}
-        self.num_classes = len(labels)
+        self.vocab = {int(label[1]): label[0] for label in labels}
+        self.vocab_size = len(labels)
 
     def get_batched_dataset(self, dataset):
         return utils.get_batched_dataset(
@@ -121,17 +121,17 @@ class BaseInputData():
         return [[int(x) for x in str.decode('utf-8').split(' ')]]
 
     def get_word(self, id):
-        return self.decoder_map[id]
+        return self.vocab[id]
 
-    def decode(self, d):
+    def decode(self, d, id):
         """Decode from label ids to words"""
         ret = []
         for c in d:
             if c < 0: continue    
-            if self.decoder_map[c] == '<eos>': return ret # sos
-            if self.decoder_map[c] == '<sos>': continue
+            if self.vocab[c] == '<eos>': return ret # sos
+            if self.vocab[c] == '<sos>': continue
             val = self.get_word(c)
-            ret.append(val if c in self.decoder_map else '?')
+            ret.append(val if c in self.vocab else '?')
         return ret
 
     def shuffle(self, inputs, bucket_size=None):
@@ -147,3 +147,6 @@ class BaseInputData():
             ls = list(inputs)
             random.shuffle(ls)
             return ls
+
+    def get_inputs_list(self, inputs, field):
+        return [inp[field] for inp in self.inputs]

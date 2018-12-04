@@ -110,10 +110,6 @@ class Model(AttentionModel, DAModel):
                 da_inputs2 = tf.layers.dense(da_inputs2,
                         self.hparams.embedding_size / 2)
                 da_inputs = tf.concat([da_inputs1, da_inputs2], -1)
-
-
-            if self.hparams.da_state = "decoder_state":
-                da_state = self.
             
             history_targets, history_target_seq_len, history_seq_len = self._build_history(
                 da_inputs,
@@ -144,11 +140,7 @@ class Model(AttentionModel, DAModel):
         for var in saver_variables:
             if var.op.name[:4] == "asr/":
                 var_list[var.op.name[4:]] = var
-                #print(var.op.name[4:])
-        #for var in saver_variables:
-        #    if not (var.op.name[:4] == "asr/" and (var.op.name[-4:] == "Adam" or var.op.name[-6:] == "Adam_1")):
-        #        print(var.op.name)
-        #        var_list[var.op.name] = var
+
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
     

@@ -2,80 +2,68 @@ import tensorflow as tf
 import os
 from .. import configs
 
-def get_batched_input_class(hparams):
+def get_batched_input_class(dataset):
     BatchedInput = None
 
-    if hparams.dataset == 'vivos':
-        from ..datasets.vivos_feature import BatchedInput
-    elif hparams.dataset == 'vctk':
-        from ..datasets.vctk import BatchedInput
-    elif hparams.dataset == 'aps':
-        from ..datasets.aps import BatchedInput
-    elif hparams.dataset == 'swbd':
+    if dataset == 'default':
+        from ..datasets.default import BatchedInput
+    elif dataset == 'swbd':
         from ..datasets.swbd import BatchedInput
-    elif hparams.dataset == 'swbd_seg':
+    elif dataset == 'vivos':
+        from ..datasets.vivos import BatchedInput
+    elif dataset == 'swbd_seg':
         from ..datasets.swbd_seg import BatchedInput
-    elif hparams.dataset == 'swda':
+    elif dataset == 'swda':
         from ..datasets.swda import BatchedInput
-    elif hparams.dataset == 'swda_seg':
+    elif dataset == 'swda_seg':
         from ..datasets.swda_seg import BatchedInput
-    elif hparams.dataset == 'swbd_order':
+    elif dataset == 'swbd_order':
         from ..datasets.swbd_order import BatchedInput
-    elif hparams.dataset == 'swbd_order_speaker_change':
+    elif dataset == 'swbd_order_speaker_change':
         from ..datasets.swbd_order_speaker_change import BatchedInput
-    elif hparams.dataset == 'aps-word':
-        from ..datasets.aps import BatchedInput
-    elif hparams.dataset == 'erato':
+    elif dataset == 'aps-word':
+        from ..datasets.csj import BatchedInput
+    elif dataset == 'erato':
         from ..datasets.erato import BatchedInput
-    elif hparams.dataset == 'erato_context':
+    elif dataset == 'erato_context':
         from ..datasets.erato_context import BatchedInput
-    elif hparams.dataset == 'erato_prev_utt':
+    elif dataset == 'erato_prev_utt':
         from ..datasets.erato_prev_utt import BatchedInput
     return BatchedInput
 
 
-def get_model_class(hparams):
+def get_model_class(model_name):
     Model = None
-    if hparams.model == 'ctc':
+    if model_name == 'ctc':
         from ..models.ctc import CTCModel as Model
-    elif hparams.model == 'attention':
+    elif model_name == 'attention':
         from ..models.attention import AttentionModel
         return AttentionModel
-    elif hparams.model == 'attention_monotonic_luong':
-        from ..models.attention_monotonic import LuongMonotonicAttentionModel
-        return LuongMonotonicAttentionModel
-    elif hparams.model == 'attention_monotonic_bahdanau':
-        from ..models.attention_monotonic import BahdanauMonotonicAttentionModel
-        return BahdanauMonotonicAttentionModel
-    elif hparams.model == 'attention_correction':
-        from ..models.attention_correction import AttentionModel
-        return AttentionModel
-    elif hparams.model == 'attention_context':
+    elif model_name == 'attention_context':
         from ..models.attention_context import AttentionModel
         return AttentionModel
-    elif hparams.model == 'attention_prev_utt':
+    elif model_name == 'attention_prev_utt':
         from ..models.attention_prev_utt_lstm import AttentionModel
         return AttentionModel
-    elif hparams.model == 'attention_prev_utt_is':
+    elif model_name == 'attention_prev_utt_is':
         from ..models.attention_prev_utt_lstm_is import AttentionModel
         return AttentionModel
-    elif hparams.model == 'attention_prev_utt_is_only':
+    elif model_name == 'attention_prev_utt_is_only':
         from ..models.attention_prev_utt_lstm_is_only import AttentionModel
         return AttentionModel
-    elif hparams.model == 'attention_keep_encoder':
-        from ..models.attention_keep_encoder import AttentionModel
-        return AttentionModel
-    elif hparams.model == 'ctc-attention':
+    elif model_name == 'ctc-attention':
         from ..models.ctc_attention import CTCAttentionModel as Model
-    elif hparams.model == 'encoder_speaker_change':
+    elif model_name == 'encoder_speaker_change':
         from ..models.encoder_speaker_change import Model
-    elif hparams.model == 'da':
+    elif model_name == 'da':
         from ..models.da import Model
-    elif hparams.model == 'da_attention':
+    elif model_name == 'da_seg':
+        from ..models.da_seg import Model
+    elif model_name == 'da_attention':
         from ..models.da_attention import Model
-    elif hparams.model == 'da_attention_seg':
+    elif model_name == 'da_attention_seg':
         from ..models.da_attention_seg import Model
-    elif hparams.model == 'da_utt_attention':
+    elif model_name == 'da_utt_attention':
         from ..models.da_utt_attention import Model
     return Model
 
@@ -96,10 +84,6 @@ def get_batched_dataset(dataset, batch_size, coef_count, mode, padding_values=0)
                        ([None], [])),
         padding_values=(('', 0.0, 0), (padding_values, 0))
     )
-    #if mode == tf.estimator.ModeKeys.PREDICT:
-    #    dataset = dataset.filter(lambda x: tf.equal(tf.shape(x[0]), batch_size))
-    #else:
-    #    dataset = dataset.filter(lambda x, y: tf.equal(tf.shape(x[0])[0], batch_size))
     return dataset
 
 
@@ -157,14 +141,13 @@ def argval(name, flags):
         return None
 
 
-def create_hparams(flags):
+def create_hparams(flags, Model):
     def _argval(name):
         return argval(name, flags)
 
     hparams = tf.contrib.training.HParams(
         model=_argval('model'),
         dataset=_argval('dataset'),
-        name=_argval('name'),
         input_unit=_argval('input_unit'),
         verbose=_argval('verbose') or False,
 
@@ -172,10 +155,6 @@ def create_hparams(flags):
         eval_batch_size=_argval('eval_batch_size') or _argval('batch_size') or 32,
         num_buckets=5,
         max_epoch_num=30,
-
-        sample_rate=16000,
-        window_size_ms=30.0,
-        window_stride_ms=10.0,
 
         epoch_step=0,
 
@@ -186,7 +165,7 @@ def create_hparams(flags):
         num_units=320,
         num_encoder_layers=3,
         num_decoder_layers=1,
-        num_classes=0,
+        vocab_size=0,
         num_features=120,
 
         colocate_gradients_with_ops=True,
@@ -202,16 +181,19 @@ def create_hparams(flags):
         predicted_train_data=None,
         predicted_dev_data=None,
         predicted_test_data=None,
+        predicted_seg_test_data=None,
         test_data=None,
         dev_data=None,
         train_size=None,
         eval_size=None,
+        load_voice=True,
         encoding="euc-jp",
         output_result=_argval("output") or False,
         result_output_file=None,
         result_output_folder=None,
         simulated=_argval("simulated") or False,
         joint_training=False,
+        metrics="wer",
         
         # learning rate
         learning_rate_start_decay_epoch=10,
@@ -219,6 +201,8 @@ def create_hparams(flags):
         learning_rate_decay_rate=0.5,
 
         # Attention
+        use_sos_eos=True,
+        use_seg_tag=False,
         sos_index=1,
         eos_index=2,
         encoder_type='lstm',
@@ -229,9 +213,9 @@ def create_hparams(flags):
         attention_num_units=128,
         output_attention=False,
         use_encoder_final_state=False,
-        append_sos_eos=True,
         location_attention_width=25,
         freeze_encoder=False,
+        tag_weight=0,
 
         # dialog act
         da_word_encoder_type='bilstm',
@@ -253,33 +237,38 @@ def create_hparams(flags):
         load=_argval('load'),
         shuffle=_argval('shuffle'),
         sort_dataset=False,
-        batch_size_decay=False
+        batch_size_decay=False,
+        **Model.get_default_params()
     )
 
     if flags.config is not None:
         json = open('model_configs/%s.json' % flags.config).read()
         hparams.parse_json(json)
 
-    hparams.summaries_dir = "log/" + hparams.name
-    hparams.out_dir = "saved_models/" + hparams.name
+    hparams.summaries_dir = "log/" + flags.config
+    hparams.out_dir = "saved_models/" + flags.config
 
     tf.logging.info(hparams)
 
     return hparams
+
 
 def update_hparams(flags, hparams):
     if flags.config is not None:
         json = open('model_configs/%s.json' % flags.config).read()
         hparams.parse_json(json)
 
+
 def clear_log(hparams, path=None):
     f = open(os.path.join(hparams.summaries_dir, path or configs.DEFAULT_LOG_PATH), 'w')
     f.close()
+
 
 def write_log(hparams, text, path=None):
     f = open(os.path.join(hparams.summaries_dir, path or configs.DEFAULT_LOG_PATH), 'a')
     f.write('\n'.join(text) + '\n')
     f.close()
+
 
 def prepare_output_path(hparams):
     if hparams.output_result:

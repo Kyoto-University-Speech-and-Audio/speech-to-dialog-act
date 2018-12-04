@@ -47,7 +47,7 @@ class AttentionModel(BaseAttentionModel):
                 var = tf.assign(
                     var,
                     tf.concat([loaded_kernel[:512], tf.zeros([128, 2048]),
-                        loaded_kernel[512:]], axis=0))
+                               loaded_kernel[512:]], axis=0))
 
             sess.run(var)
 
@@ -55,16 +55,21 @@ class AttentionModel(BaseAttentionModel):
         saver.restore(sess, ckpt)
 
     def _assign_input(self):
-        self.dlg_ids, (self.inputs, self.input_seq_len), (self.targets, self.target_seq_len), self.da_labels = self.iterator.get_next()
+        self.dlg_ids, (self.inputs, self.input_seq_len), (
+            self.targets, self.target_seq_len), self.da_labels = self.iterator.get_next()
         self.contexts_one_hot = tf.one_hot(self.da_labels, 43)
         self.contexts = tf.layers.dense(self.contexts_one_hot, 128, name="context_embedding")
 
     def _train_decode_fn(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope):
-        return super()._train_decode_fn_default(decoder_inputs, target_seq_len,
-                initial_state, encoder_outputs, decoder_cell, scope, context=self.contexts)
+        return super()._train_decode_fn_default(
+            decoder_inputs, target_seq_len,
+            initial_state, encoder_outputs, decoder_cell, scope,
+            context=self.contexts)
 
     def _eval_decode_fn(self, initial_state, encoder_outputs, decoder_cell, scope):
-        return super()._eval_decode_fn_default(initial_state, encoder_outputs, decoder_cell, scope, context=self.contexts)
+        return super()._eval_decode_fn_default(
+            initial_state, encoder_outputs, decoder_cell, scope,
+            context=self.contexts)
 
     @classmethod
     def trainable_variables(cls):

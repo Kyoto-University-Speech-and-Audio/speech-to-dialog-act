@@ -30,9 +30,9 @@ max_gradient_norm = 5.0
 class CTCAttentionModel(BaseModel):
     def _build_graph(self):
         if False:
-            self.TGT_SOS_INDEX = self.hparams.num_classes
-            self.TGT_EOS_INDEX = self.hparams.num_classes + 1
-            self.num_classes = self.hparams.num_classes + 2
+            self.TGT_SOS_INDEX = self.hparams.vocab_size
+            self.TGT_EOS_INDEX = self.hparams.vocab_size + 1
+            self.vocab_size = self.hparams.vocab_size + 2
             # Add sos and eos
             if self.mode != tf.estimator.ModeKeys.PREDICT:
                 self.target_labels = tf.concat([
@@ -44,16 +44,16 @@ class CTCAttentionModel(BaseModel):
         else:
             self.TGT_EOS_INDEX = 0
             self.TGT_SOS_INDEX = 1
-            self.num_classes = self.hparams.num_classes
+            self.vocab_size = self.hparams.vocab_size
 
         self.target_labels_no_sos = tf.slice(self.target_labels, [0, 1],
                                              [tf.shape(self.target_labels)[0], tf.shape(self.target_labels)[1] - 1])
 
         if self.mode != tf.estimator.ModeKeys.PREDICT:
-            self.targets = tf.one_hot(self.target_labels, depth=self.num_classes)
+            self.targets = tf.one_hot(self.target_labels, depth=self.vocab_size)
 
         # Projection
-        self.output_layer = layers_core.Dense(self.num_classes, use_bias=False, name="output_projection")
+        self.output_layer = layers_core.Dense(self.vocab_size, use_bias=False, name="output_projection")
 
         encoder_outputs, encoder_state = self._build_encoder()
         attention_logits, self.sample_id, final_context_state = self._build_decoder(encoder_outputs, encoder_state)
@@ -107,7 +107,7 @@ class CTCAttentionModel(BaseModel):
         return outputs, tf.concat([output_states_fw, output_states_bw], -1)
 
     def _build_ctc(self, encoder_outputs):
-        logits = tf.layers.dense(encoder_outputs, self.num_classes)
+        logits = tf.layers.dense(encoder_outputs, self.vocab_size)
         logits = tf.transpose(logits, (1, 0, 2))
         return logits
 
@@ -117,7 +117,7 @@ class CTCAttentionModel(BaseModel):
             # decoder_cell = tf.contrib.rnn.MultiRNNCell(cells)
             decoder_cell = model_utils.single_cell("lstm", NUM_UNITS * 2, self.mode)
 
-            self.embedding_decoder = tf.diag(tf.ones(self.num_classes))
+            self.embedding_decoder = tf.diag(tf.ones(self.vocab_size))
 
             attention_mechanism = CustomAttention(
                 NUM_UNITS * 2,
@@ -142,7 +142,7 @@ class CTCAttentionModel(BaseModel):
                 helper = tf.contrib.seq2seq.TrainingHelper(decoder_emb_inp, self.target_seq_len)
             else:
                 helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                    lambda ids: decoder_emb_layer(tf.one_hot(ids, depth=self.num_classes)),
+                    lambda ids: decoder_emb_layer(tf.one_hot(ids, depth=self.vocab_size)),
                     start_tokens=tf.fill([self.batch_size], self.TGT_SOS_INDEX),
                     end_token=self.TGT_EOS_INDEX
                 )
