@@ -1,13 +1,15 @@
 Experimental speech recognition library
 
-# Programs
+# Scripts & Paths
+
+These scripts are for training, evaluation and inference
 
 - `train.py`
 - `eval.py`
 - `infer.py`
 - `infer_online.py`
 
-# Folders
+While training, log and checkpoint files are generated in these folders
 
 - `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
 - `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
@@ -69,6 +71,7 @@ This command will launch a program on terminal which listens to microphone and d
   "encoding": "eucjp",
   "eos_index": 1,
   "sos_index": 2,
+  "metrics": "wer"
 
   "batch_size": 32,
   "beam_width": 0,
@@ -89,13 +92,13 @@ This command will launch a program on terminal which listens to microphone and d
 
 Default behaviour is training from last saved model. These method can be used for optional load.
 
-`--reset`: Model will be trained from scratch regardless of it's previous trained values (remember to backup your trained files). 
+`--reset`: Model will be trained from scratch regardless of its saved parameters (existing checkpoint will be overwritten). 
 
-`--load` (default: None (latest)): Specified file with tag will be loaded instead of last saved state. For example, `--load=epoch9` will load the model after 9 epochs. Here you can load your own backup model. Tag is included in file name.
+`--load` (default: None (latest)): Checkpoint to be loaded. Eg: `--load=epoch9`, `--load=best_0`
 
-`--transfer`: Load parameters from different model (which is placed in corresponding folder and load with `--load`). If specified, a transfering load method must be defined inside model class (`@classmethod def load(cls, sess, ckpt, flags)`). It will use this method instead of default loader. Here you can choose parameters to serialize or initialize additional parameters
+`--transfer`: Load pre-trained parameters from other model. A load method (mapping pre-trained parameters to model's parameters) must be defined (`@classmethod def load(cls, sess, ckpt, flags)`), which will be used instead of default loader.
 
-`--saved_steps` (default: 300): Save model after specified number of steps
+`--saved_steps` (default: 300): Save model after this number of steps
 
 ## Training
 
@@ -105,7 +108,7 @@ Default behaviour is training from last saved model. These method can be used fo
 
 ## Evaluation
 
-`--eval` (default: 1000): accuracy on test set will be calculated and written to tensorboard after each specified number of steps. Useful for checking for performance or attention alignments
+`--eval` (default: 0): update word error rate on tensorboard after a number of steps. If 0, evaluation is run after each epoch.
 
 ## Others
 
@@ -131,7 +134,7 @@ Example:
 ./bin/train 0,1 --config=attention_swb_word
 ```
 
-will train SwitchBoard speech corpus on two GPUs 0 and 1
+will train the SwitchBoard speech corpus on two GPUs 0 and 1
 
 # Results
 
@@ -149,4 +152,4 @@ You can refer to my article for an intuitive explanation on how attention mechan
 
 [Sequence to sequence learning with attention mechanism](https://medium.com/@viettrungdang/sequence-to-sequence-learning-with-attention-mechanism-a8964b5e301e)
 
-Most of the datasets are not public, but you have access to any, you can refer to my preprocessing code in `src/preproc`. The code is written inside a Jupyter Notebook for easy debug but not so well-organized.
+Most of the datasets are not public, but if you have access to any, you can refer to my pre-processing code in `src/preproc`. The code is written inside a Jupyter Notebook for easy debug but not so well-organized.

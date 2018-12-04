@@ -3,69 +3,22 @@ import os
 from .. import configs
 
 def get_batched_input_class(dataset):
-    BatchedInput = None
-
     if dataset == 'default':
         from ..datasets.default import BatchedInput
-    elif dataset == 'swbd':
-        from ..datasets.swbd import BatchedInput
-    elif dataset == 'vivos':
-        from ..datasets.vivos import BatchedInput
-    elif dataset == 'swbd_seg':
-        from ..datasets.swbd_seg import BatchedInput
-    elif dataset == 'swda':
-        from ..datasets.swda import BatchedInput
-    elif dataset == 'swda_seg':
-        from ..datasets.swda_seg import BatchedInput
-    elif dataset == 'swbd_order':
-        from ..datasets.swbd_order import BatchedInput
-    elif dataset == 'swbd_order_speaker_change':
-        from ..datasets.swbd_order_speaker_change import BatchedInput
-    elif dataset == 'aps-word':
-        from ..datasets.csj import BatchedInput
-    elif dataset == 'erato':
-        from ..datasets.erato import BatchedInput
-    elif dataset == 'erato_context':
-        from ..datasets.erato_context import BatchedInput
-    elif dataset == 'erato_prev_utt':
-        from ..datasets.erato_prev_utt import BatchedInput
-    return BatchedInput
+    else:
+        from ..private.utils import get_batched_input_class
+        return get_batched_input_class(dataset)
 
 
 def get_model_class(model_name):
-    Model = None
     if model_name == 'ctc':
         from ..models.ctc import CTCModel as Model
     elif model_name == 'attention':
         from ..models.attention import AttentionModel
         return AttentionModel
-    elif model_name == 'attention_context':
-        from ..models.attention_context import AttentionModel
-        return AttentionModel
-    elif model_name == 'attention_prev_utt':
-        from ..models.attention_prev_utt_lstm import AttentionModel
-        return AttentionModel
-    elif model_name == 'attention_prev_utt_is':
-        from ..models.attention_prev_utt_lstm_is import AttentionModel
-        return AttentionModel
-    elif model_name == 'attention_prev_utt_is_only':
-        from ..models.attention_prev_utt_lstm_is_only import AttentionModel
-        return AttentionModel
-    elif model_name == 'ctc-attention':
-        from ..models.ctc_attention import CTCAttentionModel as Model
-    elif model_name == 'encoder_speaker_change':
-        from ..models.encoder_speaker_change import Model
-    elif model_name == 'da':
-        from ..models.da import Model
-    elif model_name == 'da_seg':
-        from ..models.da_seg import Model
-    elif model_name == 'da_attention':
-        from ..models.da_attention import Model
-    elif model_name == 'da_attention_seg':
-        from ..models.da_attention_seg import Model
-    elif model_name == 'da_utt_attention':
-        from ..models.da_utt_attention import Model
-    return Model
+    else:
+        from ..private.utils import get_model_class
+        return get_model_class(model_name)
 
 
 def get_optimizer(hparams, learning_rate):
@@ -155,15 +108,12 @@ def create_hparams(flags, Model):
         eval_batch_size=_argval('eval_batch_size') or _argval('batch_size') or 32,
         num_buckets=5,
         max_epoch_num=30,
-
         epoch_step=0,
 
         summaries_dir=None,
         out_dir=None,
         beam_width=4,
         sampling_temperature=0.0,
-        num_encoder_layers=3,
-        num_decoder_layers=1,
         vocab_size=0,
         num_features=120,
 

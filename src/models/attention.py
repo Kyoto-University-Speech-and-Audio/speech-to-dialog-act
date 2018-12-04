@@ -92,6 +92,8 @@ class AttentionModel(BaseModel):
             "encoder_type": 'bilstm',
             "decoder_num_units": 512,
             "encoder_num_units": 512,
+            "num_encoder_layers": 3,
+            "num_decoder_layers": 1,
             "attention_layer_size": 512,
             "attention_energy_scale": False,
             "attention_num_units": 128,
@@ -147,7 +149,6 @@ class AttentionModel(BaseModel):
             cross_ent = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=target_labels,
                 logits=logits)
-            sample_id = tf.reduce_max(logits, -1)
             target_weights = tf.sequence_mask(self.target_seq_len, self.max_time, dtype=logits.dtype)
             if self.hparams.tag_weight == 0:
                 return tf.reduce_mean(cross_ent * target_weights)
