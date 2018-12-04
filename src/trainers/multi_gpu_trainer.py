@@ -80,7 +80,7 @@ class MultiGPUTrainer(Trainer):
                     self._batched_input_dev)
 
         if eval or self.eval_mode:
-            with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+            with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
                 self.test_model = self.Model()
                 self.hparams.batch_size = self.hparams.eval_batch_size
                 self.test_model(

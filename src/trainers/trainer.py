@@ -39,8 +39,12 @@ class Trainer(object):
         else: batched_input_train = None
         
         if hparams.test_data is not None: # init test set
-            batched_input_test = BatchedInput(self.hparams,
-                    tf.estimator.ModeKeys.EVAL, self.eval_batch_size, dev=False)
+            batched_input_test = BatchedInput(
+                self.hparams,
+                tf.estimator.ModeKeys.EVAL, 
+                self.eval_batch_size, 
+                dev=False
+            )
             batched_input_test.init_dataset()
 
         self.hparams.vocab_size = (batched_input_train or batched_input_test).vocab_size

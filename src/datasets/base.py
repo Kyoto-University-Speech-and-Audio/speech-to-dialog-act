@@ -63,7 +63,7 @@ class BaseInputData():
             self.hparams.num_features,
             #self.hparams.num_buckets,
             self.mode,
-            padding_values=self.hparams.eos_index
+            padding_values=self.hparams.get("eos_index", 0)
         )
 
     def load_wav(self, filename):

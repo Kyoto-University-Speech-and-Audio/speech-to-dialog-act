@@ -5,6 +5,8 @@ tmp
 .idea
 **/.ipynb_checkpoints
 **/*.swp
+**/*.swo
+**/*.pyc
 **/*.out
 repos
 bin

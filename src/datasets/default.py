@@ -40,10 +40,7 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def get_word(self, id):
-        if self.hparams.input_unit == "word":
-            return self.vocab[id].split('+')[0]
-        else:
-            return self.vocab[id]
+        return self.vocab[id].split('+')[0]
     
     def get_inputs_list(self, field):
         return [inp[field] for inp in self.inputs]

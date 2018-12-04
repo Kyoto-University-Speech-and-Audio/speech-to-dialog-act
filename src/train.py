@@ -94,7 +94,7 @@ def train(Model, BatchedInput, hparams):
     mode = tf.estimator.ModeKeys.TRAIN
     with graph.as_default():
         trainer = MultiGPUTrainer(hparams, Model, BatchedInput, mode)
-        trainer.build_model(eval=argval("eval") != 0)
+        trainer.build_model(eval=True)
 
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -149,7 +149,7 @@ def train(Model, BatchedInput, hparams):
             # utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
 
             # eval if needed
-            if argval("eval") > 0 and argval("eval_from") < trainer.epoch_exact
+            if argval("eval") > 0 and argval("eval_from") < trainer.epoch_exact \
                 or argval("eval") == 0 and trainer.epoch > last_epoch:
                 if trainer.global_step - last_eval_pos >= FLAGS.eval:
                     pbar.set_postfix_str("Evaluating (dev)...")

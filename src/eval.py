@@ -3,6 +3,7 @@ import os, sys
 import random
 import numpy as np
 import tensorflow as tf
+import json
 
 from src.trainers.trainer import Trainer
 from .utils import utils, ops_utils
@@ -49,12 +50,10 @@ def load_model(sess, Model, hparams):
         saver.restore(sess, ckpt)
 
 
-def eval(hparams, args):
+def eval(hparams, args, Model, BatchedInput):
     tf.reset_default_graph()
     graph = tf.Graph()
     mode = tf.estimator.ModeKeys.EVAL
-    BatchedInput = utils.get_batched_input_class(hparams)
-    Model = utils.get_model_class(hparams)
     hparams.batch_size = hparams.eval_batch_size
 
     with graph.as_default():
@@ -137,11 +136,22 @@ def eval(hparams, args):
 
 
 def main(unused_argv):
-    hparams = utils.create_hparams(args)
+    if args.config is None: 
+        raise Exception("Config file must be provided")
+    
+    json_file = open('model_configs/%s.json' % args.config).read()
+    json_dict = json.loads(json_file)
+    BatchedInput = utils.get_batched_input_class(json_dict.get("input", "default"))
+    Model = utils.get_model_class(json_dict.get("model"))
+
+    hparams = utils.create_hparams(args, Model)
     hparams.hcopy_path = configs.HCOPY_PATH
     hparams.hcopy_config = configs.HCOPY_CONFIG_PATH
-    if not os.path.exists(hparams.summaries_dir): os.mkdir(hparams.summaries_dir)
-    eval(hparams, args)
+    
+    if not os.path.exists(hparams.summaries_dir): 
+        os.mkdir(hparams.summaries_dir)
+    
+    eval(hparams, args, Model, BatchedInput)
 
 
 if __name__ == "__main__":

@@ -14,15 +14,15 @@ Experimental speech recognition library
 
 # Data Preparation
 
-Default loader will load data from one single file with following syntax (you can define your own inputting method in `src/datasets`)
+Default loader loads data from a file with the following syntax (you can define your own inputting method in `src/datasets`)
 
 ```
 <path_to_audio_file> <sequence_of_target_labels>
 ```
 
-where `<path_to_audio_file>` can by `wav`, `htk` or `npy` file that contains original sound / pre-processed acoustic features and `<sequence_of_target_labels>` contains ground-truth labels.
+where `<path_to_audio_file>` can be `wav`, `htk` or `npy` file that contains original sound / pre-processed acoustic features and `<sequence_of_target_labels>` contains ground-truth labels.
 
-If you use `wav`, path to HTK Speech Recognition Toolkit binary file must be provided in source code.
+If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolkit in `configs.py`.
 
 A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
 
@@ -31,7 +31,7 @@ A vocabulary files must also be prepared with each line containing a label (word
 ## RNN with CTC loss
 
 ```
-python -m src.train --config=ctc --dataset=aps
+python -m src.train --config=ctc_aps_sps
 ```
 
 ## seq2seq with attention mechanism
@@ -133,9 +133,15 @@ Example:
 
 will train SwitchBoard speech corpus on two GPUs 0 and 1
 
-# Result on large-scale dataset
+# Results
 
-Attention model achieved state-of-the-art result for end-to-end model on different world-class datasets.
+Results with sample configurations (not optimal configs):
+
+| Config file | Model | Dataset | Unit | LER |
+|-------------|-------|---------|------|-----|
+|`ctc_aps_sps.json`|ctc|combined CSJ-ASP & CSJ-SPS|char| - |
+|`attention_aps_sps_char.json`|attention-based|combined CSJ-ASP & CSJ-SPS | char | - |
+|`attention_aps_sps_word.json`|attention-based|combined CSJ-ASP & CSJ-SPS | word | - |
 
 # Others
 

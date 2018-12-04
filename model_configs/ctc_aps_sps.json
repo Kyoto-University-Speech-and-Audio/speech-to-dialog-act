@@ -1,0 +1,18 @@
+{
+  "model": "ctc",
+  "dataset": "default",
+  "vocab_file": "data/aps-sps/char.id",
+  "train_data": "data/aps-sps/train/char_sort_xlen.txt",
+  "test_data": "data/aps-sps/test/char_targets.txt",
+  "metrics": "wer",
+
+  "learning_rate": 1e-3,
+  "learning_rate_start_decay_epoch": 10,
+  "learning_rate_decay_steps": 5,
+  "learning_rate_decay_rate": 0.5,
+
+  "num_units": 640,
+  "num_layers": 3,
+
+  "max_epoch_num": 40
+}

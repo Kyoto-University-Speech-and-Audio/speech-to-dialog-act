@@ -162,7 +162,6 @@ def create_hparams(flags, Model):
         out_dir=None,
         beam_width=4,
         sampling_temperature=0.0,
-        num_units=320,
         num_encoder_layers=3,
         num_decoder_layers=1,
         vocab_size=0,
@@ -201,21 +200,6 @@ def create_hparams(flags, Model):
         learning_rate_decay_rate=0.5,
 
         # Attention
-        use_sos_eos=True,
-        use_seg_tag=False,
-        sos_index=1,
-        eos_index=2,
-        encoder_type='lstm',
-        decoder_num_units=320,
-        encoder_num_units=320,
-        attention_layer_size=128,
-        attention_energy_scale=False,
-        attention_num_units=128,
-        output_attention=False,
-        use_encoder_final_state=False,
-        location_attention_width=25,
-        freeze_encoder=False,
-        tag_weight=0,
 
         # dialog act
         da_word_encoder_type='bilstm',
