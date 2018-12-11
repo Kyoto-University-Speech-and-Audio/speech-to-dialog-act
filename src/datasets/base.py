@@ -7,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 from ..utils import utils
 
+
 class BaseInputData():
     def __init__(self,
                  hparams,
@@ -17,35 +18,39 @@ class BaseInputData():
                  var_val_path=None):
         self.hparams = hparams
         self.mode = mode
-        self.load_vocab(hparams.vocab_file)
+        self.vocab = self.load_vocab(hparams.vocab_file)
+        self.vocab_size = len(self.vocab)
 
         if mean_val_path is not None:
             mean = open(mean_val_path).read().split('\n')[:-1]
             self.mean = np.array([float(x) for x in mean])
             var = open(var_val_path).read().split('\n')[:-1]
             self.var = np.array([float(x) for x in var])
+        else:
+            self.mean = self.var = None
 
         hparams.vocab_size = self.vocab_size
 
         self.batch_size = tf.cast(batch_size, tf.int64)
         if self.mode == tf.estimator.ModeKeys.TRAIN:
-            self.data_filename = hparams.train_data 
+            self.data_filename = hparams.train_data
         elif self.mode == tf.estimator.ModeKeys.EVAL:
             self.data_filename = hparams.test_data if not dev else hparams.dev_data
-        else:
+        elif self.mode == tf.estimator.ModeKeys.PREDICT:
             self.data_filename = hparams.input_path
 
         self.filenames = tf.placeholder(dtype=tf.string)
         self.targets = tf.placeholder(dtype=tf.string)
-        
+
         inputs = []
         with open(self.data_filename, "r") as f:
             headers = f.readline().split('\t')
             for line in f.read().split('\n')[1:]:
                 if self.mode != tf.estimator.ModeKeys.PREDICT:
                     if line.strip() == "": continue
-                    input = { headers[i]: dat for i, dat in enumerate(line.strip().split('\t')) } 
-                    if 'target' in input: input['target'] = "%d %s %d" % (self.hparams.sos_index, input['target'], self.hparams.eos_index)
+                    input = {headers[i]: dat for i, dat in enumerate(line.strip().split('\t'))}
+                    if 'target' in input: input['target'] = "%d %s %d" % (
+                    self.hparams.sos_index, input['target'], self.hparams.eos_index)
                     inputs.append(input)
 
         self.size = len(inputs)
@@ -61,7 +66,7 @@ class BaseInputData():
             dataset,
             self.batch_size,
             self.hparams.num_features,
-            #self.hparams.num_buckets,
+            # self.hparams.num_buckets,
             self.mode,
             padding_values=self.hparams.get("eos_index", 0)
         )
@@ -84,7 +89,10 @@ class BaseInputData():
         dat = dat.byteswap()
         fh.close()
 
-        dat = (dat - self.mean) / np.sqrt(self.var)
+        if self.mean is None:
+            dat = (dat - np.mean(dat)) / np.sqrt(np.std(dat))
+        else:
+            dat = (dat - self.mean) / np.sqrt(self.var)
         fh.close()
 
         return np.float32(dat)
@@ -103,7 +111,7 @@ class BaseInputData():
         return dat
 
     def load_npy(self, filename):
-        #return np.array([[0.0]], dtype=np.float32)
+        # return np.array([[0.0]], dtype=np.float32)
         dat = np.load(filename.decode('utf-8')).astype(np.float32)
         return dat
 
@@ -127,8 +135,8 @@ class BaseInputData():
         """Decode from label ids to words"""
         ret = []
         for c in d:
-            if c < 0: continue    
-            if self.vocab[c] == '<eos>': return ret # sos
+            if c < 0: continue
+            if self.vocab[c] == '<eos>': return ret  # sos
             if self.vocab[c] == '<sos>': continue
             val = self.get_word(c)
             ret.append(val if c in self.vocab else '?')

@@ -37,8 +37,8 @@ def load_model(sess, Model, hparams):
     else:
         ckpt = tf.train.latest_checkpoint(hparams.out_dir)
 
-    #Model.load(sess, ckpt, None)
-    #return
+    # Model.load(sess, ckpt, None)
+    # return
     if ckpt:
         saver_variables = tf.global_variables()
         var_list = {var.op.name: var for var in saver_variables}
@@ -76,13 +76,13 @@ def eval(hparams, args, Model, BatchedInput):
             try:
                 ids, ground_truth_labels, predicted_labels, ground_truth_len, predicted_len = trainer.eval(sess)
                 utils.write_log(hparams, [str(ground_truth_labels)])
-                
+
                 decode_fns = trainer.test_model.get_decode_fns()
                 # dlgids += list([str(id).split('/')[-2] for id in ids])
                 metrics = (args.metrics or hparams.metrics).split(',')
                 for acc_id, (gt_labels, p_labels, gt_len, p_len) in \
                         enumerate(zip(ground_truth_labels, predicted_labels,
-                            ground_truth_len, predicted_len)):
+                                      ground_truth_len, predicted_len)):
                     if acc_id not in lers: lers[acc_id] = []
                     for i in range(len(gt_labels)):
                         if acc_id == 1 and (hparams.model == "da_attention_seg"):
@@ -94,12 +94,12 @@ def eval(hparams, args, Model, BatchedInput):
                             )
                         else:
                             ler, str_original, str_decoded = ops_utils.evaluate(
-                                gt_labels[i],  
-                                #gt_labels[i][:gt_len[i]],
+                                gt_labels[i],
+                                # gt_labels[i][:gt_len[i]],
                                 p_labels[i],
-                                #p_labels[i][:p_len[i]],
+                                # p_labels[i][:p_len[i]],
                                 decode_fns[acc_id],
-                                metrics[acc_id], 
+                                metrics[acc_id],
                                 acc_id)
                         if ler is not None:
                             lers[acc_id].append(ler)
@@ -136,9 +136,9 @@ def eval(hparams, args, Model, BatchedInput):
 
 
 def main(unused_argv):
-    if args.config is None: 
+    if args.config is None:
         raise Exception("Config file must be provided")
-    
+
     json_file = open('model_configs/%s.json' % args.config).read()
     json_dict = json.loads(json_file)
     BatchedInput = utils.get_batched_input_class(json_dict.get("input", "default"))
@@ -147,10 +147,10 @@ def main(unused_argv):
     hparams = utils.create_hparams(args, Model)
     hparams.hcopy_path = configs.HCOPY_PATH
     hparams.hcopy_config = configs.HCOPY_CONFIG_PATH
-    
-    if not os.path.exists(hparams.summaries_dir): 
+
+    if not os.path.exists(hparams.summaries_dir):
         os.mkdir(hparams.summaries_dir)
-    
+
     eval(hparams, args, Model, BatchedInput)
 
 

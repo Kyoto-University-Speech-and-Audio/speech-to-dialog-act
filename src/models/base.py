@@ -64,10 +64,10 @@ class BaseModel(object):
         :return:
         """
         if self.eval_mode or self.train_mode:
-            ((self.input_filenames, self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
+            ((self.input_files, self.inputs, self.input_seq_len), (self.target_labels, self.target_seq_len)) = \
                 self.iterator.get_next()
         else:
-            self.input_filenames, self.inputs, self.input_seq_len = self.iterator.get_next()
+            self.input_files, self.inputs, self.input_seq_len = self.iterator.get_next()
 
     def _build_graph(self):
         """

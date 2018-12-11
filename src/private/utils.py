@@ -33,9 +33,7 @@ def get_model_class(model_name):
 def get_batched_input_class(dataset):
     BatchedInput = None
 
-    if dataset == 'swbd':
-        from .datasets.private.swbd import BatchedInput
-    elif dataset == 'vivos':
+    if dataset == 'vivos':
         from .datasets.private.vivos import BatchedInput
     elif dataset == 'swbd_seg':
         from .datasets.private.swbd_seg import BatchedInput

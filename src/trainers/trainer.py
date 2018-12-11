@@ -6,74 +6,102 @@ WARMUP_STEPS = 0
 WARMUP_SCHEME = 't2t'
 DECAY_SCHEME = ''
 
+
 class Trainer(object):
     def __init__(self, hparams, Model, BatchedInput, mode):
         self.hparams = hparams
         self.mode = mode
         self.train_mode = self.mode == tf.estimator.ModeKeys.TRAIN
         self.eval_mode = self.mode == tf.estimator.ModeKeys.EVAL
-        
+        self.infer_mode = self.mode == tf.estimator.ModeKeys.PREDICT
+
         self.Model = Model
         self.BatchedInput = BatchedInput
         self.batch_size = self.hparams.eval_batch_size if self.eval_mode else self.hparams.batch_size
         self._batch_size = tf.Variable(
-                self.batch_size,
-                trainable=False,
-                name="batch_size")
+            self.batch_size,
+            trainable=False,
+            name="batch_size")
         self.eval_batch_size = self.hparams.eval_batch_size
         self._eval_batch_size = tf.Variable(
-                self.eval_batch_size,
-                trainable=False, name="eval_batch_size")
+            self.eval_batch_size,
+            trainable=False, name="eval_batch_size")
 
         batched_input_test = None
         batched_input_dev = None
+        batched_input_infer = None
 
-        if self.train_mode: # init train set and dev set
+        # init train set and dev set
+        if self.train_mode:
             if hparams.dev_data is not None:
-                batched_input_dev = BatchedInput(self.hparams,
-                        tf.estimator.ModeKeys.EVAL, self._batch_size, dev=True)
+                batched_input_dev = BatchedInput(
+                    self.hparams,
+                    tf.estimator.ModeKeys.EVAL,
+                    self._batch_size,
+                    dev=True)
                 batched_input_dev.init_dataset()
-            batched_input_train = BatchedInput(self.hparams,
-                    tf.estimator.ModeKeys.TRAIN, self._eval_batch_size)
+
+            batched_input_train = BatchedInput(
+                self.hparams,
+                tf.estimator.ModeKeys.TRAIN,
+                self._eval_batch_size)
             batched_input_train.init_dataset()
-        else: batched_input_train = None
-        
-        if hparams.test_data is not None: # init test set
+        else:
+            batched_input_train = None
+
+        # init test set (for train or eval)
+        if self.train_mode or self.eval_mode:
+            if hparams.test_data is None:
+                raise Exception("No testing input")
+
             batched_input_test = BatchedInput(
                 self.hparams,
-                tf.estimator.ModeKeys.EVAL, 
-                self.eval_batch_size, 
+                tf.estimator.ModeKeys.EVAL,
+                self.eval_batch_size,
                 dev=False
             )
             batched_input_test.init_dataset()
+        else:  # infer mode
+            batched_input_infer = BatchedInput(
+                self.hparams,
+                tf.estimator.ModeKeys.PREDICT,
+                1,
+            )
+            batched_input_infer.init_dataset()
 
-        self.hparams.vocab_size = (batched_input_train or batched_input_test).vocab_size
+        self.hparams.vocab_size = \
+            (batched_input_train or batched_input_test or batched_input_infer).vocab_size
 
         self._processed_inputs_count = tf.Variable(0, trainable=False)
         self.processed_inputs_count = 0
         self.increment_inputs_count = tf.assign(
             self._processed_inputs_count,
-            self._processed_inputs_count + (self.batch_size))
+            self._processed_inputs_count + self.batch_size)
 
         self._global_step = tf.Variable(0, trainable=False)
 
         self._batched_input_train = batched_input_train
         self._batched_input_test = batched_input_test
         self._batched_input_dev = batched_input_dev
+        self._batched_input_infer = batched_input_infer
 
         self._eval_count = 0
 
     def init(self, sess):
         self.processed_inputs_count = sess.run(self._processed_inputs_count)
         self.reset_train_iterator(sess)
-        self._batched_input_test.reset_iterator(sess)
-        if self._batched_input_dev is not None: self._batched_input_dev.reset_iterator(sess)
+        if self._batched_input_test is not None:
+            self._batched_input_test.reset_iterator(sess)
+        if self._batched_input_infer is not None:
+            self._batched_input_infer.reset_iterator(sess)
+        if self._batched_input_dev is not None:
+            self._batched_input_dev.reset_iterator(sess)
 
     def build_model(self, eval=False):
         if self.train_mode:
             with tf.variable_scope(tf.get_variable_scope()):
                 self.learning_rate = tf.constant(self.hparams.learning_rate)
-                #self.learning_rate = self._get_learning_rate_warmup(self.hparams)
+                # self.learning_rate = self._get_learning_rate_warmup(self.hparams)
                 self.learning_rate = self._get_learning_rate_decay()
 
                 # build model
@@ -104,7 +132,7 @@ class Trainer(object):
             ])
 
             self._train_model = model
-        
+
             # init dev model
             if self.hparams.dev_data is not None:
                 with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -124,6 +152,14 @@ class Trainer(object):
                     self._batched_input_test)
                 self._eval_summary = tf.no_op()
 
+        if self.infer_mode:
+            with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                self.infer_model = self.Model()
+                self.infer_model(
+                    self.hparams,
+                    tf.estimator.ModeKeys.PREDICT,
+                    self._batched_input_infer)
+
         if self.hparams.verbose:
             self.print_logs()
 
@@ -132,7 +168,7 @@ class Trainer(object):
             self._batched_input_train.reset_iterator(
                 sess,
                 skip=self.processed_inputs_count % self.data_size,
-                #shuffle=self.epoch > 5
+                # shuffle=self.epoch > 5
             )
             self._train_model._assign_input()
 
@@ -152,17 +188,17 @@ class Trainer(object):
         model = self._train_model
         try:
             ret = model.train(sess, [
-                    self._processed_inputs_count,
-                    self.loss,
-                    self._global_step,
-                    self._summary,
-                    self.increment_inputs_count,
-                ] + \
-                [self.update] if not self.hparams.is_simulated_train else [] + \
-                model.get_ground_truth_label_placeholder() + \
-                model.get_predicted_label_placeholder() + \
-                model.get_extra_ops()
-            )
+                                        self._processed_inputs_count,
+                                        self.loss,
+                                        self._global_step,
+                                        self._summary,
+                                        self.increment_inputs_count,
+                                    ] + \
+                                    [self.update] if not self.hparams.is_simulated_train else [] + \
+                                                                                              model.get_ground_truth_label_placeholder() + \
+                                                                                              model.get_predicted_label_placeholder() + \
+                                                                                              model.get_extra_ops()
+                              )
             self.processed_inputs_count = ret[0]
 
             if self.hparams.result_output_file:
@@ -170,10 +206,10 @@ class Trainer(object):
                 sample_ids = ret[-3]
                 encoder_outputs = ret[-2]
                 encoder_state = ret[-1]
-                #atts = ret[-1]
+                # atts = ret[-1]
                 with open(self.hparams.result_output_file, "a") as f:
                     for ids1, ids2, eo, es, filename in zip(target_ids, sample_ids,
-                            eo, es, ret[2]):
+                                                            eo, es, ret[2]):
                         _ids1 = [str(id) for id in ids1 if id < self.hparams.vocab_size - 2]
                         _ids2 = [str(id) for id in ids2 if id < self.hparams.vocab_size - 2]
                         fn_eo = "%s/eo_%d.npy" % (self.hparams.result_output_folder, self._eval_count)
@@ -182,7 +218,7 @@ class Trainer(object):
                             filename.decode(),
                             ' '.join(_ids1),
                             ' '.join(_ids2),
-                            #' '.join(self._batched_input_test.decode(ids2)),
+                            # ' '.join(self._batched_input_test.decode(ids2)),
                             fn_eo,
                             fn_es
                         ]) + '\n')
@@ -206,7 +242,7 @@ class Trainer(object):
             model.get_predicted_label_placeholder() + \
             model.get_ground_truth_label_len_placeholder() + \
             model.get_predicted_label_len_placeholder() + \
-            #[model.input_filenames] + \
+            # [model.input_filenames] + \
             [
                 model.loss, self._eval_summary,
             ] + model.get_extra_ops()
@@ -215,8 +251,8 @@ class Trainer(object):
         if self.hparams.output_result:
             model.output_result(
                 ret[:num_acc],
-                ret[num_acc:2*num_acc],
-                ret[2 * num_acc:3 * num_acc], 
+                ret[num_acc:2 * num_acc],
+                ret[2 * num_acc:3 * num_acc],
                 ret[3 * num_acc:4 * num_acc],
                 ret[-len(model.get_extra_ops()):],
                 self._eval_count
@@ -224,7 +260,21 @@ class Trainer(object):
             self._eval_count += len(ret[0])
 
         return None, ret[:num_acc], ret[num_acc:2 * num_acc], \
-            ret[2 * num_acc:3 * num_acc], ret[3 * num_acc:4 * num_acc]
+               ret[2 * num_acc:3 * num_acc], ret[3 * num_acc:4 * num_acc]
+
+    def infer(self, sess):
+        model = self.infer_model
+        self._batched_input_infer.reset_iterator(sess)
+
+        ret = sess.run(
+            model.get_predicted_label_placeholder() + \
+            model.get_predicted_label_len_placeholder()
+        )
+
+        sample_ids = ret[0]
+        decode_fns = self.infer_model.get_decode_fns()
+        for ids in sample_ids:
+            print(decode_fns[0](ids))
 
     def eval_all(self, sess, dev=False):
         """
@@ -256,8 +306,8 @@ class Trainer(object):
                             )
                         else:
                             ler, _, _ = ops_utils.evaluate(
-                                gt_labels[i],#[:gt_len[i]],
-                                p_labels[i],#[:p_len[i]],
+                                gt_labels[i],  # [:gt_len[i]],
+                                p_labels[i],  # [:p_len[i]],
                                 decode_fns[acc_id],
                                 metrics[acc_id], acc_id)
                         if ler is not None: lers[acc_id].append(ler)
@@ -270,7 +320,7 @@ class Trainer(object):
         return self.learning_rate
         """Get learning rate warmup."""
         print("  learning_rate=%g, warmup_steps=%d, warmup_scheme=%s" %
-                        (hparams.learning_rate, WARMUP_STEPS, WARMUP_SCHEME))
+              (hparams.learning_rate, WARMUP_STEPS, WARMUP_SCHEME))
 
         # Apply inverse decay if global steps less than warmup steps.
         # Inspired by https://arxiv.org/pdf/1706.03762.pdf (Section 5.3)
@@ -292,18 +342,18 @@ class Trainer(object):
 
     def _get_learning_rate_decay(self):
         return self.learning_rate if self.epoch < self.hparams.learning_rate_start_decay_epoch else \
-                   tf.train.exponential_decay(
-                       self.learning_rate,
-                       (self.epoch - self.hparams.learning_rate_start_decay_epoch),
-                       self.hparams.learning_rate_decay_steps,
-                       self.hprams.learning_rate_decay_rate, staircase=True)
+            tf.train.exponential_decay(
+                self.learning_rate,
+                (self.epoch - self.hparams.learning_rate_start_decay_epoch),
+                self.hparams.learning_rate_decay_steps,
+                self.hprams.learning_rate_decay_rate, staircase=True)
 
     def _build_graph(self):
         pass
 
     def load(self, sess, ckpt, flags):
         saver_variables = tf.global_variables()
-        #if flags.load_ignore_scope:
+        # if flags.load_ignore_scope:
         #    for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=FLAGS.load_ignore_scope):
         #        saver_variables.remove(var)
 
@@ -353,4 +403,3 @@ class Trainer(object):
     @property
     def step_size(self):
         return self.batch_size
-

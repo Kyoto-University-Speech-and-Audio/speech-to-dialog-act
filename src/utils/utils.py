@@ -2,9 +2,14 @@ import tensorflow as tf
 import os
 from .. import configs
 
+
 def get_batched_input_class(dataset):
     if dataset == 'default':
         from ..datasets.default import BatchedInput
+        return BatchedInput
+    if dataset == 'swbd':
+        from ..datasets.swbd import BatchedInput
+        return BatchedInput
     else:
         from ..private.utils import get_batched_input_class
         return get_batched_input_class(dataset)

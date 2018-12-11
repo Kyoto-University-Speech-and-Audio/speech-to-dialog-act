@@ -1,32 +1,24 @@
-#  Compatibility imports
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-#from .base_multi_gpus import MultiGPUBaseModel as BaseModel
-from .base import BaseModel
-import matplotlib as mpl
-mpl.use('Agg')
-import matplotlib.pyplot as plt
-
-import tensorflow as tf
 import numpy as np
-import os
-
-from tensorflow.python.layers import core as layers_core
-from .attentions.location_based_attention import LocationBasedAttention
-
+import matplotlib as mpl
 from six.moves import xrange as range
 
-from ..utils import ops_utils, model_utils
+import tensorflow as tf
+from tensorflow.python.layers import core as layers_core
 from tensorflow.contrib.seq2seq import BeamSearchDecoder
 
+from .base import BaseModel
+from .attentions.location_based_attention import LocationBasedAttention
+from ..utils import model_utils
 from .helpers.basic_context_decoder import BasicContextDecoder
 
-# Hyper-parameters
+mpl.use('Agg')
+
 SAMPLING_TEMPERATURE = 0
 
-max_gradient_norm = 5.0
 
 class AttentionModel(BaseModel):
     def __init__(self,
@@ -67,15 +59,19 @@ class AttentionModel(BaseModel):
                 self.summary = tf.no_op()
 
         return self
-    
-    def get_ground_truth_label_placeholder(self): return [self.targets]
 
-    def get_predicted_label_placeholder(self): return [self.sample_id]
+    def get_ground_truth_label_placeholder(self):
+        return [self.targets]
 
-    def get_ground_truth_label_len_placeholder(self): return [self.target_seq_len]
+    def get_predicted_label_placeholder(self):
+        return [self.sample_id]
 
-    def get_predicted_label_len_placeholder(self): return [self.final_sequence_lengths]
-    
+    def get_ground_truth_label_len_placeholder(self):
+        return [self.target_seq_len]
+
+    def get_predicted_label_len_placeholder(self):
+        return [self.final_sequence_lengths]
+
     def get_decode_fns(self):
         return [
             lambda d: self._batched_input.decode(d, None)
@@ -103,13 +99,15 @@ class AttentionModel(BaseModel):
             "freeze_encoder": False,
             "tag_weight": 0,
         }
-    
+
     def _assign_input(self):
         if self.eval_mode or self.train_mode:
-            ((self.input_filenames, self.inputs, self.input_seq_len), (self.targets, self.target_seq_len)) = \
+            ((self.input_files, self.inputs, self.input_seq_len), (self.targets, self.target_seq_len)) = \
                 self.iterator.get_next()
         else:
-            self.input_filenames, self.inputs, self.input_seq_len = self.iterator.get_next()
+            self.input_files, self.inputs, self.input_seq_len = self.iterator.get_next()
+            self.targets = tf.no_op()
+            self.target_seq_len = tf.no_op()
 
     def _build_graph(self):
         if not self.infer_mode:
@@ -154,16 +152,14 @@ class AttentionModel(BaseModel):
                 return tf.reduce_mean(cross_ent * target_weights)
             else:
                 tag_weights = tf.cast(tf.logical_and(tf.logical_and(
-                    target_labels >= self._batched_input.tag_start, 
+                    target_labels >= self._batched_input.tag_start,
                     target_labels <= self._batched_input.tag_end,
                 ), tf.cast(target_weights, tf.bool)), tf.float32)
                 return tf.reduce_mean(cross_ent * target_weights + \
-                        cross_ent * tag_weights * self.hparams.tag_weight)
-
+                                      cross_ent * tag_weights * self.hparams.tag_weight)
 
     def _build_encoder(self):
-        #if True:
-        with tf.variable_scope('encoder') as encoder_scope:
+        with tf.variable_scope('encoder'):
             if self.hparams.encoder_type == 'pbilstm':
                 cells_fw = [model_utils.single_cell("lstm", self.hparams.encoder_num_units // 2, self.mode) for _ in
                             range(self.hparams.num_encoder_layers)]
@@ -197,8 +193,8 @@ class AttentionModel(BaseModel):
                             )
                             # Concat the outputs to create the new input.
                             prev_layer = tf.concat(outputs, axis=2)
-                        #states_fw.append(state_fw)
-                        #states_bw.append(state_bw)
+                        # states_fw.append(state_fw)
+                        # states_bw.append(state_bw)
 
                 return prev_layer, tf.concat([state_fw, state_bw], -1)
             if self.hparams.encoder_type == 'bilstm':
@@ -215,7 +211,8 @@ class AttentionModel(BaseModel):
                 cells = [model_utils.single_cell("lstm", self.hparams.encoder_num_units, self.mode) for _ in
                          range(self.hparams.num_encoder_layers)]
                 cell = tf.nn.rnn_cell.MultiRNNCell(cells)
-                outputs, state = tf.nn.dynamic_rnn(cell, self.inputs, sequence_length=self.input_seq_len, dtype=tf.float32)
+                outputs, state = tf.nn.dynamic_rnn(cell, self.inputs, sequence_length=self.input_seq_len,
+                                                   dtype=tf.float32)
                 print(state)
                 return outputs, state
 
@@ -231,7 +228,8 @@ class AttentionModel(BaseModel):
         )
         return cell
 
-    def _train_decode_fn_default(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell, scope, context=None):
+    def _train_decode_fn_default(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell,
+                                 scope, context=None):
         self._attention_cell = self._get_attention_cell(
             decoder_cell,
             encoder_outputs,
@@ -241,7 +239,7 @@ class AttentionModel(BaseModel):
         if initial_state is None:
             initial_state = self._attention_cell.zero_state(self.batch_size, dtype=tf.float32)
         else:
-            initial_state = self._attention_cell.zero_state(self.batch_size, dtype=tf.float32)\
+            initial_state = self._attention_cell.zero_state(self.batch_size, dtype=tf.float32) \
                 .clone(cell_state=initial_state)
 
         helper = tf.contrib.seq2seq.TrainingHelper(decoder_inputs, target_seq_len)
@@ -267,8 +265,7 @@ class AttentionModel(BaseModel):
 
         self._attention_cell = self._get_attention_cell(decoder_cell, encoder_outputs, input_seq_len)
 
-        if initial_state == None:
-            initial_state = self._attention_cell.zero_state(batch_size, dtype=tf.float32)
+        initial_state = initial_state or self._attention_cell.zero_state(batch_size, dtype=tf.float32)
 
         def embed_fn(ids):
             return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.vocab_size))
@@ -350,7 +347,8 @@ class AttentionModel(BaseModel):
                         initial_state = tf.contrib.rnn.LSTMStateTuple(encoder_final_state[0], encoder_final_state[1])
                     else:
                         initial_state = tf.layers.dense(encoder_final_state, self.hparams.decoder_num_units)
-                else: initial_state = None
+                else:
+                    initial_state = None
 
                 outputs, final_context_state, self.final_sequence_lengths = self._train_decode_fn(
                     decoder_emb_inp,
@@ -363,7 +361,7 @@ class AttentionModel(BaseModel):
 
                 self.decoder_outputs = outputs.rnn_output
                 logits = self.output_layer(outputs.rnn_output)
-                #sample_ids = tf.argmax(logits, axis=-1)
+                # sample_ids = tf.argmax(logits, axis=-1)
                 sample_ids = self.target_labels
             else:
                 outputs, final_context_state, self.final_sequence_lengths = self._eval_decode_fn(
@@ -412,8 +410,9 @@ class AttentionModel(BaseModel):
         return [self.encoder_outputs, self.encoder_final_state]
         return []
         return [self.decoder_outputs]
-        #return tf.no_op()
-        attention = tf.transpose(self.final_context_state.alignment_history.stack(), [1, 0, 2]) # [batch_size * target_max_len * T]
+
+        attention = tf.transpose(self.final_context_state.alignment_history.stack(),
+                                 [1, 0, 2])  # [batch_size * target_max_len * T]
         attention = tf.expand_dims(attention, -1)
         encoder_outputs = tf.expand_dims(self.encoder_outputs, 1)
         da_inputs = tf.reduce_mean(
@@ -424,7 +423,7 @@ class AttentionModel(BaseModel):
             axis=2
         )
         return [da_inputs]
-        #return tf.no_op()
+        # return tf.no_op()
 
     def trainable_variables(self):
         trainable_vars = tf.trainable_variables()
@@ -453,7 +452,7 @@ class AttentionModel(BaseModel):
         attention_images *= 255
         attention_summary = tf.summary.image("attention_images", attention_images, max_outputs=1)
         return attention_summary
-    
+
     @classmethod
     def load(cls, sess, ckpt, flags):
         saver_variables = tf.global_variables()
@@ -470,25 +469,25 @@ class AttentionModel(BaseModel):
 
         sess.run([
             tf.assign(sess.graph.get_tensor_by_name("asr/decoder/beam_outputs/memory_layer/kernel:0"),
-                sess.graph.get_tensor_by_name("asr/decoder/memory_layer/kernel:0"))
+                      sess.graph.get_tensor_by_name("asr/decoder/memory_layer/kernel:0"))
         ])
 
     def output_result(self, ground_truth_labels, predicted_labels,
-            ground_truth_label_len, predicted_label_len, extra_ops, eval_count):
+                      ground_truth_label_len, predicted_label_len, extra_ops, eval_count):
         target_ids = ground_truth_labels[0]
         sample_ids = predicted_labels[0]
         atts = extra_ops[0]
         with open(self.hparams.result_output_file, "a") as f:
             for ids1, ids2, att in zip(target_ids, sample_ids,
-                    atts):
+                                       atts):
                 _ids1 = [str(id) for id in ids1 if id < self.hparams.vocab_size - 2]
                 _ids2 = [str(id) for id in ids2 if id < self.hparams.vocab_size - 2]
                 fn = "%s/%d.npy" % (self.hparams.result_output_folder, eval_count)
                 f.write('\t'.join([
-                    #filename.decode(),
+                    # filename.decode(),
                     ' '.join(_ids1),
                     ' '.join(_ids2),
-                    #' '.join(self._batched_input_test.decode(ids2)),
+                    # ' '.join(self._batched_input_test.decode(ids2)),
                     fn
                 ]) + '\n')
                 att = att[:len(_ids2), :]

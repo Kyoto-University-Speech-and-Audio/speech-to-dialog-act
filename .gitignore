@@ -20,3 +20,4 @@ nohups
 src/models/private
 src/datasets/private
 src/preproc/private
+venv
