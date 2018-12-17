@@ -16,7 +16,7 @@ class BatchedInput(BaseInputData):
             for line in f.read().split('\n'):
                 if line.strip() == "": continue
 
-                input = {headers[i]: dat for i, dat in enumerate(line.strip().split('\t'))}
+                input = {headers[i]: dat for i, dat in enumerate(line.strip().split(' ', 1))}
                 inputs.append(input)
 
         self.size = len(inputs)

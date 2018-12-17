@@ -144,6 +144,23 @@ Results with sample configurations (not optimal configs):
 - [ ] Joint CTC-attention
 - [ ] Tacotron2
 
+# Live Demo
+
+Trained model can be tested with your voice in real time with a simple frontend interface (ReactJS). You need to edit the paths to your config files and pre-trained models in `server.py`.
+
+Server
+
+```
+python -m src.server
+```
+
+Client
+
+```
+cd frontend
+npm start
+```
+
 # Others
 
 You can refer to my article for an intuitive explanation on how attention mechanism works

@@ -22,7 +22,7 @@ CONFIG_FILES = {
     }
 }
 
-trainers = []
+trainers = {}
 
 TMP_FOLDER = "./tmp"
 
@@ -56,7 +56,7 @@ def init():
             trainer.init(sess)
             trainer.sess = sess
 
-        trainers.append(trainer)
+        trainers[id] = trainer
 
 
 def allowed_file(filename):
@@ -74,7 +74,7 @@ def infer():
     filepath = os.path.join(TMP_FOLDER, filename)
     file.save(filepath)
 
-    trainer = trainers[0]
+    trainer = trainers[request.data.get('lang', 'ja')]
 
     input_path = os.path.join("tmp", "input.tmp")
     with open(input_path, "w") as f:

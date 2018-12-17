@@ -2,14 +2,11 @@ import React, { Component } from 'react';
 import './App.css';
 import {ReactMic} from "react-mic";
 import {
-  AppBar,
   Button,
   FormControl, FormControlLabel, FormGroup,
   FormLabel, Grid, LinearProgress, Paper,
   Radio,
-  RadioGroup, TextField,
-  Toolbar,
-  Typography
+  RadioGroup, Typography
 } from "@material-ui/core/es/index";
 import {withStyles} from "@material-ui/core/es/styles/index";
 
@@ -96,14 +93,14 @@ const styles = theme => ({
   resultGrid: {
     width: '70%'
   }
-})
+});
 
 class App extends Component {
   state = {
     lang: 'en',
     transcript: "",
     isLoading: false
-  }
+  };
 
   handleLanguageChange = event => {
     this.setState({
@@ -117,11 +114,12 @@ class App extends Component {
     })
     console.log('recordedBlob is: ', blob);
 
-    const data = new FormData()
-    const file = new File([blob], "record.webm")
-    data.append('file', file)
-    console.log(data)
-    this.setState({isLoading: true})
+    const data = new FormData();
+    const file = new File([blob.blob], "record.webm");
+    data.append('lang', this.state.lang);
+    data.append('file', file);
+    console.log(data);
+    this.setState({isLoading: true});
 
     fetch(API_INFER, {
       method: 'POST',
@@ -133,7 +131,7 @@ class App extends Component {
           isLoading: false
         })
       })
-  }
+  };
 
   render() {
     const { classes } = this.props;

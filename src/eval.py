@@ -141,7 +141,7 @@ def main(unused_argv):
 
     json_file = open('model_configs/%s.json' % args.config).read()
     json_dict = json.loads(json_file)
-    BatchedInput = utils.get_batched_input_class(json_dict.get("input", "default"))
+    BatchedInput = utils.get_batched_input_class(json_dict.get("dataset", "default"))
     Model = utils.get_model_class(json_dict.get("model"))
 
     hparams = utils.create_hparams(args, Model)

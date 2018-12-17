@@ -92,8 +92,6 @@ class BaseInputData():
         else:
             dat = (dat - self.mean) / np.sqrt(self.var)
 
-        print(np.size(dat), dat)
-
         return np.float32(dat)
 
     def load_htk(self, filename):
@@ -115,19 +113,21 @@ class BaseInputData():
         return dat
 
     def load_input(self, filepath):
-        ext = str(os.path.splitext(filepath)[1])
-        if ext == ".htk":
+        ext = os.path.splitext(filepath)[1]
+        if ext == b".htk":
             return self.load_htk(filepath)
-        elif ext == ".wav":
+        elif ext == b".wav":
             return self.load_wav(filepath)
-        elif ext == ".npy":
+        elif ext == b".npy":
             return self.load_npy(filepath)
-        elif ext in {'.webm'}:
+        elif ext in {b'.webm'}:
             stream = ffmpeg.input(filepath)
-            stream = ffmpeg.hflip(stream)
-            stream = ffmpeg.output(stream, os.path.join('tmp', 'output.wav'))
+            output_path = os.path.join('tmp', 'output.wav')
+            stream = ffmpeg.output(stream, output_path)
             ffmpeg.run(stream)
-            return self.load_wav(os.path.join('tmp', 'output.wav'))
+            dat = self.load_wav(output_path)
+            os.remove(output_path)
+            return dat
         else:
             return np.array([[0.0] * 120] * 8).astype(np.float32)
 
