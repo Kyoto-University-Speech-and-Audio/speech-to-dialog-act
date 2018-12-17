@@ -8,9 +8,10 @@ DECAY_SCHEME = ''
 
 
 class Trainer(object):
-    def __init__(self, hparams, Model, BatchedInput, mode):
+    def __init__(self, hparams, Model, BatchedInput, mode, graph=None):
         self.hparams = hparams
         self.mode = mode
+        self.graph = graph
         self.train_mode = self.mode == tf.estimator.ModeKeys.TRAIN
         self.eval_mode = self.mode == tf.estimator.ModeKeys.EVAL
         self.infer_mode = self.mode == tf.estimator.ModeKeys.PREDICT
@@ -262,8 +263,9 @@ class Trainer(object):
         return None, ret[:num_acc], ret[num_acc:2 * num_acc], \
                ret[2 * num_acc:3 * num_acc], ret[3 * num_acc:4 * num_acc]
 
-    def infer(self, sess):
+    def infer(self, sess=None):
         model = self.infer_model
+        sess = sess or self.sess
         self._batched_input_infer.reset_iterator(sess)
 
         ret = sess.run(
@@ -273,8 +275,7 @@ class Trainer(object):
 
         sample_ids = ret[0]
         decode_fns = self.infer_model.get_decode_fns()
-        for ids in sample_ids:
-            print(decode_fns[0](ids))
+        return [''.join(decode_fns[0](ids)) for ids in sample_ids]
 
     def eval_all(self, sess, dev=False):
         """

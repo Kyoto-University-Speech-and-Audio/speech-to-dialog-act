@@ -1,22 +1,23 @@
-import random
-
 import tensorflow as tf
 
 from .base import BaseInputData
-from ..utils import utils
+import tensorflow as tf
+
+from .base import BaseInputData
+
 
 class BatchedInput(BaseInputData):
     def __init__(self, hparams, mode, batch_size, dev=False):
         BaseInputData.__init__(self, hparams, mode, batch_size, dev)
         
         inputs = []
-        for line in open(self.data_filename, "r"):
-            if line.strip() == "": continue
-            filename, target = line.strip().split(' ', 1)
-            inputs.append({
-                'filename': filename, 
-                'target': target
-            })
+        with open(self.data_filename, "r") as f:
+            headers = f.readline().strip().split('\t')
+            for line in f.read().split('\n'):
+                if line.strip() == "": continue
+
+                input = {headers[i]: dat for i, dat in enumerate(line.strip().split('\t'))}
+                inputs.append(input)
 
         self.size = len(inputs)
         self.inputs = inputs
@@ -28,29 +29,42 @@ class BatchedInput(BaseInputData):
 
         if self.mode == tf.estimator.ModeKeys.PREDICT:
             src_tgt_dataset = src_dataset
+            self.batched_dataset = src_dataset.padded_batch(
+                self.batch_size,
+                padded_shapes=([], [None, self.hparams.num_features], []),
+                padding_values=('', 0.0, 0)
+            )
         else:
             tgt_dataset = tf.data.Dataset.from_tensor_slices(self.targets)
             tgt_dataset = tgt_dataset.map(
                 lambda str: tf.cast(tf.py_func(self.extract_target_features, [str], tf.int64), tf.int32))
             tgt_dataset = tgt_dataset.map(lambda feat: (tf.cast(feat, tf.int32), tf.shape(feat)[0]))
-
             src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+            self.batched_dataset = self.get_batched_dataset(src_tgt_dataset)
 
-        self.batched_dataset = self.get_batched_dataset(src_tgt_dataset)
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def get_word(self, id):
-        return self.vocab[id].split('+')[0]
-    
-    def get_inputs_list(self, field):
-        return [inp[field] for inp in self.inputs]
+        if self.vocab[id][0] != '<':
+            return self.vocab[id].split('+')[0]
+        else:
+            return ''
 
     def reset_iterator(self, sess, skip=0, shuffle=False, bucket_size=None):
         if shuffle: inputs = self.shuffle(self.inputs, bucket_size)
         else: inputs = self.inputs
         inputs = inputs[skip:]
 
-        sess.run(self.iterator.initializer, feed_dict={
-            self.filenames: self.get_inputs_list("filename"),
-            self.targets: self.get_inputs_list("target")
-        })
+        if self.mode == tf.estimator.ModeKeys.PREDICT:
+            sess.run(
+                self.iterator.initializer,
+                feed_dict={
+                    self.filenames: self.get_inputs_list(inputs, 'sound')
+                })
+        else:
+            sess.run(
+                self.iterator.initializer,
+                feed_dict={
+                    self.filenames: self.get_inputs_list(inputs, 'sound'),
+                    self.targets: self.get_inputs_list(inputs, 'target')
+                })

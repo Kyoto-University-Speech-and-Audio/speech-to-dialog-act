@@ -148,8 +148,8 @@ def main(unused_argv):
     
     os.system('cls')  # clear screen
 
-    infer("test.wav", sess, trainer)
-    return
+    #infer("test.wav", sess, trainer)
+    #return
     while True:
         # if input("Start recording? [Y/n]: ") != 'n':
         print("Recording...", end="\r")

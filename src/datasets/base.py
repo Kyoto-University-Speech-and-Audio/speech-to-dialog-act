@@ -6,6 +6,7 @@ from subprocess import call, PIPE
 import numpy as np
 import tensorflow as tf
 from ..utils import utils
+import ffmpeg
 
 
 class BaseInputData():
@@ -13,18 +14,16 @@ class BaseInputData():
                  hparams,
                  mode,
                  batch_size,
-                 dev=False,
-                 mean_val_path=None,
-                 var_val_path=None):
+                 dev=False):
         self.hparams = hparams
         self.mode = mode
         self.vocab = self.load_vocab(hparams.vocab_file)
         self.vocab_size = len(self.vocab)
 
-        if mean_val_path is not None:
-            mean = open(mean_val_path).read().split('\n')[:-1]
+        if hparams.norm_mean_path is not None:
+            mean = open(hparams.norm_mean_path).read().split('\n')[:-1]
             self.mean = np.array([float(x) for x in mean])
-            var = open(var_val_path).read().split('\n')[:-1]
+            var = open(hparams.norm_var_path).read().split('\n')[:-1]
             self.var = np.array([float(x) for x in var])
         else:
             self.mean = self.var = None
@@ -58,8 +57,7 @@ class BaseInputData():
 
     def load_vocab(self, vocab_file):
         labels = [s.strip().split(' ', 1) for s in open(vocab_file, encoding=self.hparams.encoding)]
-        self.vocab = {int(label[1]): label[0] for label in labels}
-        self.vocab_size = len(labels)
+        return {int(label[1]): label[0] for label in labels}
 
     def get_batched_dataset(self, dataset):
         return utils.get_batched_dataset(
@@ -90,10 +88,11 @@ class BaseInputData():
         fh.close()
 
         if self.mean is None:
-            dat = (dat - np.mean(dat)) / np.sqrt(np.std(dat))
+            dat = (dat - dat.mean()) / np.std(dat)
         else:
             dat = (dat - self.mean) / np.sqrt(self.var)
-        fh.close()
+
+        print(np.size(dat), dat)
 
         return np.float32(dat)
 
@@ -115,13 +114,20 @@ class BaseInputData():
         dat = np.load(filename.decode('utf-8')).astype(np.float32)
         return dat
 
-    def load_input(self, filename):
-        if os.path.splitext(filename)[1] == b".htk":
-            return self.load_htk(filename)
-        elif os.path.splitext(filename)[1] == b".wav":
-            return self.load_wav(filename)
-        elif os.path.splitext(filename)[1] == b".npy":
-            return self.load_npy(filename)
+    def load_input(self, filepath):
+        ext = str(os.path.splitext(filepath)[1])
+        if ext == ".htk":
+            return self.load_htk(filepath)
+        elif ext == ".wav":
+            return self.load_wav(filepath)
+        elif ext == ".npy":
+            return self.load_npy(filepath)
+        elif ext in {'.webm'}:
+            stream = ffmpeg.input(filepath)
+            stream = ffmpeg.hflip(stream)
+            stream = ffmpeg.output(stream, os.path.join('tmp', 'output.wav'))
+            ffmpeg.run(stream)
+            return self.load_wav(os.path.join('tmp', 'output.wav'))
         else:
             return np.array([[0.0] * 120] * 8).astype(np.float32)
 

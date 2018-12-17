@@ -99,10 +99,11 @@ def argval(name, flags):
         return None
 
 
-def create_hparams(flags, Model):
+def create_hparams(flags, Model, config=None):
     def _argval(name):
-        return argval(name, flags)
+        return argval(name, flags) if flags is not None else None
 
+    config = config or _argval('config')
     hparams = tf.contrib.training.HParams(
         model=_argval('model'),
         dataset=_argval('dataset'),
@@ -130,6 +131,8 @@ def create_hparams(flags, Model):
         dropout=0.2,
 
         # Data
+        norm_mean_path=None,
+        norm_var_path=None,
         vocab_file=None,
         train_data=None,
         predicted_train_data=None,
@@ -180,12 +183,11 @@ def create_hparams(flags, Model):
         **Model.get_default_params()
     )
 
-    if flags.config is not None:
-        json = open('model_configs/%s.json' % flags.config).read()
+    if config is not None:
+        json = open('model_configs/%s.json' % config).read()
         hparams.parse_json(json)
-
-    hparams.summaries_dir = "log/" + flags.config
-    hparams.out_dir = "saved_models/" + flags.config
+        hparams.summaries_dir = "log/" + config
+        hparams.out_dir = "saved_models/" + config
 
     tf.logging.info(hparams)
 
