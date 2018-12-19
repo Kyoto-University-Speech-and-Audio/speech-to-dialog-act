@@ -1,9 +1,5 @@
-import tensorflow as tf
-
 from .base import BaseInputData
 import tensorflow as tf
-
-from .base import BaseInputData
 
 
 class BatchedInput(BaseInputData):
@@ -12,11 +8,11 @@ class BatchedInput(BaseInputData):
         
         inputs = []
         with open(self.data_filename, "r") as f:
-            headers = f.readline().strip().split('\t')
+            headers = f.readline().strip().split(hparams.delimiter)
             for line in f.read().split('\n'):
                 if line.strip() == "": continue
 
-                input = {headers[i]: dat for i, dat in enumerate(line.strip().split(' ', 1))}
+                input = {headers[i]: dat for i, dat in enumerate(line.strip().split(hparams.delimiter))}
                 inputs.append(input)
 
         self.size = len(inputs)

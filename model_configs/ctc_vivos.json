@@ -1,0 +1,22 @@
+{
+    "model": "ctc",
+    "dataset": "default",
+    "input_unit": "char",
+    "vocab_file": "data/vivos/vocab_chars.txt",
+    "train_data": "data/vivos/char_train.csv",
+    "test_data": "data/vivos/char_test.csv",
+  
+    "learning_rate": 1e-3,
+    "batch_size": 50,
+    "eval_batch_size": 50,
+  
+    "learning_rate_start_decay_epoch": 10,
+    "learning_rate_decay_steps": 5,
+    "learning_rate_decay_rate": 0.5,
+  
+    "num_units": 640,
+    "num_layers": 3,
+    "max_gradient_norm": 5.0,
+    "max_epoch_num": 100
+  }
+  

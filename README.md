@@ -1,34 +1,28 @@
-Experimental speech recognition library
+# Experimental speech recognition library
 
-# Scripts & Paths
+## Scripts & Paths
 
-These scripts are for training, evaluation and inference
+These scripts are for training, evaluation and inference: `train.py`, `eval.py`, `infer.py`, `infer_online.py`
 
-- `train.py`
-- `eval.py`
-- `infer.py`
-- `infer_online.py`
-
-During training, log and checkpoint files are generated in these folders
+During training, logs and checkpoints are generated in these folders
 
 - `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
 - `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
 
-# Data Preparation
+## Data Preparation
 
-Default loader loads data from a file with the following syntax (you can define your own inputting method in `src/datasets`)
+Default loader reads data from a file with the following syntax (you can define your own inputting method in `src/datasets`)
 
 ```
+sound target
 <path_to_audio_file> <sequence_of_target_labels>
 ```
 
 where `<path_to_audio_file>` can be `wav`, `htk` or `npy` file that contains original sound / pre-processed acoustic features and `<sequence_of_target_labels>` contains ground-truth labels.
 
-If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolkit in `configs.py`.
+If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolkit in `configs.py`. A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
 
-A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
-
-# Examples
+## Examples
 
 Train an RNN-based model with CTC loss
 
@@ -50,24 +44,22 @@ Evaluate with last checkpoint
 python -m src.eval --config=attention_aps_sps_char
 ```
 
-Online inference
+Online inference: launch a program on terminal which listens to microphone and decode each utterance separated by non-voice range
 
 ```
-python -m csp.infer_online --config=attention_aps_sps_char
+python -m src.infer_online --config=attention_aps_sps_char
 ```
 
-This command will launch a program on terminal which listens to microphone and decode each utterance separated by non-voice range. Used to check accuracy in real time.
+## Arguments & Configurations
 
-# Training & Evaluation Arguments
+### Model Configuration
 
-## Model Configuration
-
-`--config`: Name of the json config files (placed in `model_configs`) containing all hyper parameters and options for training and evaluating model. An example of config file:
+`--config`: Name of the json config files (placed in `model_configs`) containing all hyper-parameters and options for training and evaluating model. An example of config file:
 
 ```
 {
   "model": "attention",
-  "input": "aps",
+  "dataset": "default",
   "input_unit": "word",
   "vocab_file": "data/aps/words.txt",
   "train_data": "data/aps/train.txt",
@@ -92,7 +84,7 @@ This command will launch a program on terminal which listens to microphone and d
 }
 ```
 
-## Load and Save
+### Load and Save
 
 Default behaviour is training from last saved model. These method can be used for optional load.
 
@@ -104,31 +96,31 @@ Default behaviour is training from last saved model. These method can be used fo
 
 `--saved_steps` (default: 300): Save model after this number of steps
 
-## Training
+### Training
 
 `--batch_size` (default: 32)
 
 `--shuffle`: Shuffle data after each epoch
 
-## Evaluation
+### Evaluating
 
 `--eval` (default: 0): update word error rate on tensorboard after a number of steps. If 0, evaluation is run after each epoch.
 
-## Others
+### Others
 
 `--verbose`: print debug information
 
 `--debug`: run with tensorflow's debug mode
 
-# Customization for experiments
+## Customizing for experiments
 
 New model should be subclassed from `BaseModel`, which handles loading hyper-parameters.
 
 `AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional components or embeddings by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
 
-# Results
+## Results
 
-Results with sample configurations (not optimal configs):
+Results with sample configurations:
 
 | Config file | Model | Dataset | Unit | LER |
 |-------------|-------|---------|------|-----|
@@ -136,7 +128,7 @@ Results with sample configurations (not optimal configs):
 |`attention_aps_sps_char.json`|attention-based|combined CSJ-ASP & CSJ-SPS | char | - |
 |`attention_aps_sps_word.json`|attention-based|combined CSJ-ASP & CSJ-SPS | word | - |
 
-# Checkpoint
+## Checkpoint
 
 - [x] CTC loss
 - [x] Attention mechanism
@@ -144,9 +136,9 @@ Results with sample configurations (not optimal configs):
 - [ ] Joint CTC-attention
 - [ ] Tacotron2
 
-# Live Demo
+## Live Demo
 
-Trained model can be tested with your voice in real time with a simple frontend interface (ReactJS). You need to edit the paths to your config files and pre-trained models in `server.py`.
+Model can be tested with your voice in real time with a simple frontend interface (ReactJS). You need to edit the paths to your config files and pre-trained models in `server.py`.
 
 Server
 
@@ -158,13 +150,11 @@ Client
 
 ```
 cd frontend
-npm start
+npm install & npm start
 ```
 
-# Others
+## Others
 
-You can refer to my article for an intuitive explanation on how attention mechanism works
+This is my article for an intuitive explanation on how attention mechanism works: [Sequence to sequence learning with attention mechanism](https://medium.com/@viettrungdang/sequence-to-sequence-learning-with-attention-mechanism-a8964b5e301e)
 
-[Sequence to sequence learning with attention mechanism](https://medium.com/@viettrungdang/sequence-to-sequence-learning-with-attention-mechanism-a8964b5e301e)
-
-Most of the datasets are not public, but if you have access to any, you can refer to my pre-processing code in `src/preproc`. The code is written inside a Jupyter Notebook for easy debug but not so well-organized.
+Most of the datasets are not public, but if you have access to any, you can refer to my pre-processing code in `src/preproc`. The code is written inside a Jupyter Notebook (not so well-organized)

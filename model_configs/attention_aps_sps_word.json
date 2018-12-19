@@ -4,6 +4,7 @@
   "vocab_file": "data/aps-sps/word.id",
   "train_data": "data/aps-sps/train/word_sort_xlen.txt",
   "test_data": "data/aps-sps/test/word_targets.txt",
+  "encoding": "euc-jp",
   "metrics": "wer",
   
   "learning_rate": 1e-4,

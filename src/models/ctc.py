@@ -1,17 +1,9 @@
-#  Compatibility imports
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import time, os
-
+import os
 from .base import BaseModel
-
 import tensorflow as tf
-import pdb
 from six.moves import xrange as range
-
 from ..utils import ops_utils
+
 
 class CTCModel(BaseModel):
     def __init__(self):
@@ -34,7 +26,8 @@ class CTCModel(BaseModel):
     def get_default_params(cls):
         return {
             "num_units": 640,
-            "num_layers": 3
+            "num_layers": 3,
+            "decoder": "greedy",  # greedy or beam_search
         }
 
     def _assign_input(self):
@@ -47,7 +40,7 @@ class CTCModel(BaseModel):
     def _build_graph(self):
         with tf.variable_scope("ctc"):
             # generate a SparseTensor required by ctc_loss op.
-            self.targets = ops_utils.sparse_tensor(self.targets, padding_value=-1)
+            self.targets = ops_utils.sparse_tensor(self.targets, padding_value=self.hparams.vocab_size - 1)
 
             cells_fw = [tf.contrib.rnn.LSTMCell(self.hparams.num_units) 
                     for _ in range(self.hparams.num_layers)]
@@ -61,21 +54,20 @@ class CTCModel(BaseModel):
                 dtype=tf.float32
             )
 
-            # Reshaping to apply the same weights over the timesteps
-            # outputs = tf.reshape(outputs, [-1, num_hidden])
             logits = tf.layers.dense(outputs, self.hparams.vocab_size)
-            # Reshaping back to the original shape
-            # logits = tf.reshape(logits, [hparams.batch_size, -1, self.vocab_size])
 
             # Time major
             logits = tf.transpose(logits, (1, 0, 2))
             self.logits = logits
 
-            loss = tf.nn.ctc_loss(self.targets, logits, self.input_seq_len, ignore_longer_outputs_than_inputs=True)
+            loss = tf.nn.ctc_loss(self.targets, logits, self.input_seq_len)
             self.loss = tf.reduce_mean(loss)
 
-            self.decoded, log_prob = tf.nn.ctc_greedy_decoder(logits, self.input_seq_len)
-            # self.decoded, log_prob = tf.nn.ctc_beam_search_decoder(logits, self.input_seq_len)
+            if self.hparams.decoder == "greedy":
+                self.decoded, log_prob = tf.nn.ctc_greedy_decoder(logits, self.input_seq_len)
+            elif self.hparams.decoder == "beam_search":
+                self.decoded, log_prob = tf.nn.ctc_beam_search_decoder(logits, self.input_seq_len)
+            
             self.dense_decoded = tf.sparse_tensor_to_dense(self.decoded[0], default_value=-1)
 
             # label error rate

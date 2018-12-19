@@ -48,15 +48,28 @@ class BaseInputData():
                 if self.mode != tf.estimator.ModeKeys.PREDICT:
                     if line.strip() == "": continue
                     input = {headers[i]: dat for i, dat in enumerate(line.strip().split('\t'))}
-                    if 'target' in input: input['target'] = "%d %s %d" % (
-                    self.hparams.sos_index, input['target'], self.hparams.eos_index)
+                    
+                    if hparams.get('use_sos_eos', False) and 'target' in input: 
+                        input['target'] = "%d %s %d" % (
+                            self.hparams.sos_index, input['target'], 
+                            self.hparams.eos_index)
                     inputs.append(input)
 
         self.size = len(inputs)
         self.inputs = inputs
 
     def load_vocab(self, vocab_file):
-        labels = [s.strip().split(' ', 1) for s in open(vocab_file, encoding=self.hparams.encoding)]
+        labels = []
+        count = 0
+        for s in open(vocab_file, encoding=self.hparams.encoding):
+            if ' ' in s:
+                labels.append(s.strip().split(' ', 1))
+            else:
+                labels.append((s, str(count)))
+                count += 1
+
+        labels.append(("<eos>", len(labels)))
+
         return {int(label[1]): label[0] for label in labels}
 
     def get_batched_dataset(self, dataset):
@@ -66,7 +79,7 @@ class BaseInputData():
             self.hparams.num_features,
             # self.hparams.num_buckets,
             self.mode,
-            padding_values=self.hparams.get("eos_index", 0)
+            padding_values=self.hparams.get("eos_index", len(self.vocab) - 1)
         )
 
     def load_wav(self, filename):

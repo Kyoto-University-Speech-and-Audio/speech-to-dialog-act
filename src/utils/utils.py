@@ -17,7 +17,8 @@ def get_batched_input_class(dataset):
 
 def get_model_class(model_name):
     if model_name == 'ctc':
-        from ..models.ctc import CTCModel as Model
+        from ..models.ctc import CTCModel
+        return CTCModel
     elif model_name == 'attention':
         from ..models.attention import AttentionModel
         return AttentionModel
@@ -107,6 +108,7 @@ def create_hparams(flags, Model, config=None):
     hparams = tf.contrib.training.HParams(
         model=_argval('model'),
         dataset=_argval('dataset'),
+        delimiter="\t",
         input_unit=_argval('input_unit'),
         verbose=_argval('verbose') or False,
 
@@ -144,7 +146,7 @@ def create_hparams(flags, Model, config=None):
         train_size=None,
         eval_size=None,
         load_voice=True,
-        encoding="euc-jp",
+        encoding="utf-8",
         output_result=_argval("output") or False,
         result_output_file=None,
         result_output_folder=None,
