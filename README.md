@@ -1,27 +1,5 @@
 # Experimental speech recognition library
 
-## Scripts & Paths
-
-These scripts are for training, evaluation and inference: `train.py`, `eval.py`, `infer.py`, `infer_online.py`
-
-During training, logs and checkpoints are generated in these folders
-
-- `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
-- `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
-
-## Data Preparation
-
-Default loader reads data from a file with the following syntax (you can define your own inputting method in `src/datasets`)
-
-```
-sound target
-<path_to_audio_file> <sequence_of_target_labels>
-```
-
-where `<path_to_audio_file>` can be `wav`, `htk` or `npy` file that contains original sound / pre-processed acoustic features and `<sequence_of_target_labels>` contains ground-truth labels.
-
-If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolkit in `configs.py`. A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
-
 ## Examples
 
 Train a model
@@ -43,6 +21,19 @@ Online inference: launch a program on terminal which listens to microphone and d
 ```
 python -m src.infer_online --config=attention_aps_sps_char
 ```
+
+## Data Preparation
+
+Default loader reads data from a file with the following syntax (you can define your own inputting method in `src/datasets`)
+
+```
+sound target
+<path_to_audio_file> <sequence_of_target_labels>
+```
+
+where `<path_to_audio_file>` can be `wav`, `htk` or `npy` file that contains original sound / pre-processed acoustic features and `<sequence_of_target_labels>` contains ground-truth labels.
+
+If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolkit in `configs.py`. A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
 
 ## Arguments & Configurations
 
@@ -105,6 +96,12 @@ Default behaviour is training from last saved model. These method can be used fo
 `--verbose`: print debug information
 
 `--debug`: run with tensorflow's debug mode
+
+## Outputs
+
+`saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
+
+`log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
 
 ## Customizing for experiment
 
