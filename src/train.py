@@ -142,6 +142,7 @@ def train(Model, BatchedInput, hparams):
         test_lers = {}
         min_test_lers = {}
         min_dev_test_lers = {}
+        eval_step = int(argval("eval"))
 
         trainer.reset_train_iterator(sess)
 
@@ -149,20 +150,25 @@ def train(Model, BatchedInput, hparams):
             # utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
 
             # eval if needed
-            if argval("eval") > 0 and argval("eval_from") < trainer.epoch_exact \
-                or argval("eval") == 0 and trainer.epoch > last_epoch:
+            if (eval_step > 0 and argval("eval_from") < trainer.epoch_exact and \
+                    trainer.global_step - last_eval_pos >= FLAGS.eval) \
+                or eval_step == 0 and trainer.epoch > last_epoch:
                 if trainer.global_step - last_eval_pos >= FLAGS.eval:
+                    # validation set
                     pbar.set_postfix_str("Evaluating (dev)...")
                     dev_lers = trainer.eval_all(sess, dev=True)
+                    # test set
                     pbar.set_postfix_str("Evaluating (test)...")
                     test_lers = trainer.eval_all(sess, dev=False)
 
                     for acc_id in test_lers:
                         if dev_lers is None:
+                            # without validation set: best model has the highest test accuracy
                             if acc_id not in min_test_lers or min_test_lers[acc_id] > test_lers[acc_id]:
                                 min_test_lers[acc_id] = test_lers[acc_id]
                                 save(hparams, sess, "best_%d" % acc_id)
                         else:
+                            # with validation set: best model has the highest dev accuracy
                             if acc_id not in min_test_lers or min_test_lers[acc_id] > test_lers[acc_id]:
                                 min_test_lers[acc_id] = test_lers[acc_id]
 
@@ -177,15 +183,16 @@ def train(Model, BatchedInput, hparams):
                         for (err_id, lers) in [("dev", dev_lers), ("test", test_lers), ("min_test", min_dev_test_lers)]:
                             if lers is not None and len(lers) > 0:
                                 writer.add_summary(
-                                    tf.Summary(value=[tf.Summary.Value(simple_value=lers[acc_id],
-                                                                       tag="%s_error_rate_%d" % (err_id, acc_id))]),
+                                    tf.Summary(
+                                        value=[tf.Summary.Value(
+                                            simple_value=lers[acc_id],
+                                            tag="%s_error_rate_%d" % (err_id, acc_id))]
+                                        ),
                                     trainer.processed_inputs_count)
 
                     last_eval_pos = trainer.global_step
 
             loss, summary = trainer.train(sess)
-
-            # return
 
             if trainer.epoch > last_epoch:  # reset epoch
                 pbar = reset_pbar()

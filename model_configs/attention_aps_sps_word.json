@@ -14,8 +14,8 @@
   "norm_mean_path": "data/aps-sps/mean.dat",
   "norm_var_path": "data/aps-sps/var.dat",
   
-  "batch_size": 50,
-  "eval_batch_size": 50,
+  "batch_size": 30,
+  "eval_batch_size": 30,
 
   "eos_index": 1,
   "sos_index": 2,

@@ -9,7 +9,7 @@ These scripts are for training, evaluation and inference
 - `infer.py`
 - `infer_online.py`
 
-While training, log and checkpoint files are generated in these folders
+During training, log and checkpoint files are generated in these folders
 
 - `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
 - `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
