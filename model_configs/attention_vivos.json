@@ -1,0 +1,31 @@
+{
+    "model": "attention",
+    "dataset": "default",
+    "input_unit": "char",
+    "vocab_file": "data/vivos/vocab_chars.txt",
+    "train_data": "data/vivos/char_train.csv",
+    "test_data": "data/vivos/char_test.csv",
+  
+    "learning_rate": 1e-3,
+    "batch_size": 40,
+    "eval_batch_size": 40,
+  
+    "learning_rate_start_decay_epoch": 10,
+    "learning_rate_decay_steps": 5,
+    "learning_rate_decay_rate": 0.5,
+  
+    "encoder_type": "pbilstm",
+    "encoder_num_units": 512,
+    "num_encoder_layers": 3,
+    "num_decoder_layers": 1,
+    "decoder_num_units": 256,
+    "attention_num_units": 256,
+    "attention_layer_size": 256,
+    "output_attention": true,
+  
+    "beam_width": 0,
+    "length_penalty_weight": 0.5,
+    "max_gradient_norm": 5.0,
+    "max_epoch_num": 40
+  }
+  

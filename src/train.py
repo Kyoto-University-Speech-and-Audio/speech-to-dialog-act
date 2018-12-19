@@ -146,8 +146,16 @@ def train(Model, BatchedInput, hparams):
 
         trainer.reset_train_iterator(sess)
 
-        while True:
+        while trainer.epoch <= hparams.max_epoch_num:
             # utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
+
+            loss, summary = trainer.train(sess)
+
+            # save checkpoint
+            if not argval("simulated") and trainer.global_step - last_save_step >= FLAGS.save_steps \
+                or trainer.epoch > last_epoch:
+                save(hparams, sess, "epoch%d" % trainer.epoch)
+                last_save_step = trainer.global_step
 
             # eval if needed
             if (eval_step > 0 and argval("eval_from") < trainer.epoch_exact and \
@@ -192,20 +200,8 @@ def train(Model, BatchedInput, hparams):
 
                     last_eval_pos = trainer.global_step
 
-            loss, summary = trainer.train(sess)
-
-            if trainer.epoch > last_epoch:  # reset epoch
-                pbar = reset_pbar()
-                last_epoch = trainer.epoch
-
             writer.add_summary(summary, trainer.processed_inputs_count)
             pbar.update(1)
-
-            if not argval("simulated") and trainer.global_step - last_save_step >= FLAGS.save_steps:
-                save(hparams, sess, "epoch%d" % trainer.epoch)
-                last_save_step = trainer.global_step
-
-            if trainer.epoch > hparams.max_epoch_num: break
 
             # reduce batch size with long input
             if hparams.batch_size_decay:
@@ -222,6 +218,10 @@ def train(Model, BatchedInput, hparams):
                 if dev_lers is not None: pbar_pf["dev" + str(acc_id)] = "%2.2f" % (dev_lers[acc_id] * 100)
             pbar_pf['cost'] = "%.3f" % (loss)
             pbar.set_postfix(pbar_pf)
+
+            if trainer.epoch > last_epoch:  # reset epoch
+                pbar = reset_pbar()
+                last_epoch = trainer.epoch
 
 
 def main(unused_argv):

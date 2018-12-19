@@ -23,16 +23,6 @@ class BatchedInput(BaseInputData):
 
             self.inputs = inputs
 
-    def load_vocab(self, vocab_file):
-        labels = [s.strip() for s in open(vocab_file, encoding=self.hparams.encoding)]
-        vocab = {id: label for id, label in enumerate(labels)}
-        if self.hparams.use_sos_eos:
-            self.hparams.eos_index = len(labels)
-            self.hparams.sos_index = len(labels) + 1
-            vocab[len(labels)] = '<eos>'
-            vocab[len(labels) + 1] = '<sos>'
-        return vocab
-
     def init_dataset(self):
         src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
         src_dataset = src_dataset.map(lambda filename: (filename, tf.py_func(self.load_input, [filename], tf.float32)))

@@ -24,24 +24,18 @@ If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolki
 
 ## Examples
 
-Train an RNN-based model with CTC loss
-
-```
-CUDA_VISIBLE_DEVICES=0,1 python -m src.train --config=ctc_aps_sps
-```
-
-Train an seq2seq model with attention mechanism
+Train a model
 
 ```
 CUDA_VISIBLE_DEVICES=0,1 python -m src.train --config=attention_aps_sps_char
-# or
-CUDA_VISIBLE_DEVICES=0,1 python -m src.train --config=attention_aps_sps_word
 ```
 
-Evaluate with last checkpoint
+Evaluate
 
 ```
 python -m src.eval --config=attention_aps_sps_char
+python -m src.eval --config=attention_aps_sps_char --load=epoch9
+python -m src.eval --config=attention_aps_sps_char --load=best_0
 ```
 
 Online inference: launch a program on terminal which listens to microphone and decode each utterance separated by non-voice range
@@ -112,7 +106,7 @@ Default behaviour is training from last saved model. These method can be used fo
 
 `--debug`: run with tensorflow's debug mode
 
-## Customizing for experiments
+## Customizing for experiment
 
 New model should be subclassed from `BaseModel`, which handles loading hyper-parameters.
 
@@ -124,9 +118,11 @@ Results with sample configurations:
 
 | Config file | Model | Dataset | Unit | LER |
 |-------------|-------|---------|------|-----|
-|`ctc_aps_sps.json`|ctc|combined CSJ-ASP & CSJ-SPS|char| - |
-|`attention_aps_sps_char.json`|attention-based|combined CSJ-ASP & CSJ-SPS | char | - |
-|`attention_aps_sps_word.json`|attention-based|combined CSJ-ASP & CSJ-SPS | word | - |
+|`ctc_aps_sps`|ctc|CSJ-ASP & CSJ-SPS|char| - |
+|`attention_aps_sps_char`|attention|CSJ-ASP & CSJ-SPS | char | - |
+|`attention_aps_sps_word`|attention|CSJ-ASP & CSJ-SPS | word | - |
+|`ctc_vivos`|ctc|vivos (Vietnamese) | char | - |
+|`attention_vivos`|attention|vivos(Vietnamese)|char|-|
 
 ## Checkpoint
 
@@ -138,7 +134,7 @@ Results with sample configurations:
 
 ## Live Demo
 
-Model can be tested with your voice in real time with a simple frontend interface (ReactJS). You need to edit the paths to your config files and pre-trained models in `server.py`.
+Model can be tested with your voice in real time with a simple frontend interface (ReactJS). You need to edit the paths to your config and model files in `server.py`.
 
 Server
 

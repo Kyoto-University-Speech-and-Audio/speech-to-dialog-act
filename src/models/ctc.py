@@ -14,7 +14,7 @@ class CTCModel(BaseModel):
         return self
 
     def get_ground_truth_label_placeholder(self): return [self.targets]
-    def get_predicted_label_placeholder(self): return [self.decoded[0]]
+    def get_predicted_label_placeholder(self): return [self.dense_decoded]
     def get_ground_truth_label_len_placeholder(self): return [tf.no_op()]
     def get_predicted_label_len_placeholder(self): return [tf.no_op()]
     def get_decode_fns(self):
@@ -40,7 +40,7 @@ class CTCModel(BaseModel):
     def _build_graph(self):
         with tf.variable_scope("ctc"):
             # generate a SparseTensor required by ctc_loss op.
-            self.targets = ops_utils.sparse_tensor(self.targets, padding_value=self.hparams.vocab_size - 1)
+            self.sparse_targets = ops_utils.sparse_tensor(self.targets, padding_value=self.hparams.vocab_size - 1)
 
             cells_fw = [tf.contrib.rnn.LSTMCell(self.hparams.num_units) 
                     for _ in range(self.hparams.num_layers)]
@@ -60,7 +60,7 @@ class CTCModel(BaseModel):
             logits = tf.transpose(logits, (1, 0, 2))
             self.logits = logits
 
-            loss = tf.nn.ctc_loss(self.targets, logits, self.input_seq_len)
+            loss = tf.nn.ctc_loss(self.sparse_targets, logits, self.input_seq_len)
             self.loss = tf.reduce_mean(loss)
 
             if self.hparams.decoder == "greedy":
@@ -72,7 +72,7 @@ class CTCModel(BaseModel):
 
             # label error rate
             self.ler = tf.reduce_mean(tf.edit_distance(tf.cast(self.decoded[0], tf.int32),
-                                                   self.targets))
+                                                   self.sparse_targets))
 
         return self.loss
 

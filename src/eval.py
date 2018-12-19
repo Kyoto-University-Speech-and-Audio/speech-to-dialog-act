@@ -84,6 +84,7 @@ def eval(hparams, args, Model, BatchedInput):
                         enumerate(zip(ground_truth_labels, predicted_labels,
                                       ground_truth_len, predicted_len)):
                     if acc_id not in lers: lers[acc_id] = []
+                
                     for i in range(len(gt_labels)):
                         if acc_id == 1 and (hparams.model == "da_attention_seg"):
                             ler, str_original, str_decoded = ops_utils.joint_evaluate(
@@ -104,8 +105,14 @@ def eval(hparams, args, Model, BatchedInput):
                         if ler is not None:
                             lers[acc_id].append(ler)
 
-                            tqdm.write(
-                                "\nGT: %s\nPR: %s\nLER: %.3f\n" % (' '.join(str_original), ' '.join(str_decoded), ler))
+                            if hparams.input_unit == "word":
+                                str_original = ' '.join(str_original)
+                                str_decoded = ' '.join(str_decoded)
+                            elif hparams.input_unit == "char":
+                                str_original = ''.join(str_original).replace('_', ' ')
+                                str_decoded = ''.join(str_decoded).replace('_', ' ')
+                            
+                            tqdm.write("\nGT: %s\nPR: %s\nLER: %.3f\n" % (str_original, str_decoded, ler))
 
                             meta = tf.SummaryMetadata()
                             meta.plugin_data.plugin_name = "text"
@@ -131,8 +138,6 @@ def eval(hparams, args, Model, BatchedInput):
     # fo.write("LER: %2.2f" % (sum(lers) / len(lers) * 100))
     # print(len(lers[0]))
     fo.close()
-
-    tf.logging.info("test_ler = {:.3f}".format(sum(lers) / len(lers)))
 
 
 def main(unused_argv):

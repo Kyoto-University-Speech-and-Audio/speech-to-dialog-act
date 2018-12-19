@@ -61,16 +61,24 @@ class BaseInputData():
     def load_vocab(self, vocab_file):
         labels = []
         count = 0
-        for s in open(vocab_file, encoding=self.hparams.encoding):
-            if ' ' in s:
+        for s in open(vocab_file, encoding=self.hparams.encoding).read().split('\n'):
+            if ' ' in s:  # word id
                 labels.append(s.strip().split(' ', 1))
-            else:
+            else:  # word
                 labels.append((s, str(count)))
                 count += 1
+        
+        vocab = {int(id): label for label, id in labels}
+        if self.hparams.get('use_sos_eos', False):
+            self.hparams.eos_index = len(labels)
+            self.hparams.sos_index = len(labels) + 1
+            vocab[len(labels)] = '<eos>'
+            vocab[len(labels) + 1] = '<sos>'
+        else:
+            self.hparams.eos_index = len(labels)
+            vocab[len(labels)] = '<eos>'
 
-        labels.append(("<eos>", len(labels)))
-
-        return {int(label[1]): label[0] for label in labels}
+        return vocab
 
     def get_batched_dataset(self, dataset):
         return utils.get_batched_dataset(
