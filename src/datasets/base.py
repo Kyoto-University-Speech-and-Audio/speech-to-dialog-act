@@ -74,7 +74,7 @@ class BaseInputData():
             self.hparams.sos_index = len(labels) + 1
             vocab[len(labels)] = '<eos>'
             vocab[len(labels) + 1] = '<sos>'
-        else:
+        elif self.hparams.get('eos_index', None) is None:
             self.hparams.eos_index = len(labels)
             vocab[len(labels)] = '<eos>'
 

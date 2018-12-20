@@ -26,6 +26,6 @@
     "beam_width": 0,
     "length_penalty_weight": 0.5,
     "max_gradient_norm": 5.0,
-    "max_epoch_num": 40
+    "max_epoch_num": 150
   }
   

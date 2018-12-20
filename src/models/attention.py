@@ -94,7 +94,7 @@ class AttentionModel(BaseModel):
             "attention_energy_scale": False,
             "attention_num_units": 128,
             "output_attention": False,
-            "use_encoder_final_state": False,
+            "use_encoder_final_state": True,
             "location_attention_width": 25,
             "freeze_encoder": False,
             "tag_weight": 0,
@@ -228,34 +228,38 @@ class AttentionModel(BaseModel):
         )
         return cell
 
-    def _train_decode_fn_default(self, decoder_inputs, target_seq_len, initial_state, encoder_outputs, decoder_cell,
-                                 scope, context=None):
-        self._attention_cell = self._get_attention_cell(
+    def _train_decode_fn_default(
+            self, decoder_inputs, target_seq_len,
+            encoder_outputs, encoder_final_state, 
+            decoder_cell,
+            scope, context=None):
+        attention_cell = self._get_attention_cell(
             decoder_cell,
             encoder_outputs,
             self.input_seq_len
         )
 
-        if initial_state is None:
-            initial_state = self._attention_cell.zero_state(self.batch_size, dtype=tf.float32)
-        else:
-            initial_state = self._attention_cell.zero_state(self.batch_size, dtype=tf.float32) \
-                .clone(cell_state=initial_state)
-
         helper = tf.contrib.seq2seq.TrainingHelper(decoder_inputs, target_seq_len)
-        decoder = BasicContextDecoder(self._attention_cell, helper, initial_state, context=context)
+        decoder = BasicContextDecoder(
+            attention_cell, 
+            helper, 
+            self._get_decoder_initial_state(attention_cell, encoder_final_state), 
+            context=context)
 
         outputs, final_state, final_output_lengths = tf.contrib.seq2seq.dynamic_decode(
-            decoder, swap_memory=True,
+            decoder,
+            swap_memory=True,
             scope=scope)
 
-        return outputs, final_state, final_output_lengths
+        return attention_cell, outputs, final_state, final_output_lengths
 
-    def _eval_decode_fn_default(self, initial_state, encoder_outputs, decoder_cell, scope, context=None):
+    def _eval_decode_fn_default(
+            self, 
+            encoder_outputs, encoder_final_state,
+            decoder_cell, scope, context=None):
         if self.hparams.beam_width > 0:
             encoder_outputs = tf.contrib.seq2seq.tile_batch(
                 encoder_outputs, multiplier=self.hparams.beam_width)
-            print(self.input_seq_len)
             input_seq_len = tf.contrib.seq2seq.tile_batch(
                 self.input_seq_len, multiplier=self.hparams.beam_width)
             batch_size = self.batch_size * self.hparams.beam_width
@@ -263,9 +267,9 @@ class AttentionModel(BaseModel):
             input_seq_len = self.input_seq_len
             batch_size = self.batch_size
 
-        self._attention_cell = self._get_attention_cell(decoder_cell, encoder_outputs, input_seq_len)
-
-        initial_state = initial_state or self._attention_cell.zero_state(batch_size, dtype=tf.float32)
+        attention_cell = self._get_attention_cell(
+            decoder_cell, encoder_outputs, input_seq_len)
+        initial_state = self._get_decoder_initial_state(attention_cell, encoder_final_state)
 
         def embed_fn(ids):
             return self.decoder_emb_layer(tf.one_hot(ids, depth=self.hparams.vocab_size))
@@ -298,9 +302,9 @@ class AttentionModel(BaseModel):
                 )
 
             decoder = BasicContextDecoder(
-                self._attention_cell,
+                attention_cell,
                 helper,
-                initial_state,
+                initial_state=initial_state,
                 context=context,
                 _output_layer=self.output_layer
             )
@@ -311,7 +315,7 @@ class AttentionModel(BaseModel):
             maximum_iterations=100,
             scope=scope)
 
-        return outputs, final_context_state, final_sequence_lengths
+        return attention_cell, outputs, final_context_state, final_sequence_lengths
 
     def _attention_fn_default(self, input_seq_len, encoder_outputs):
         return LocationBasedAttention(
@@ -324,13 +328,28 @@ class AttentionModel(BaseModel):
 
     def _get_decoder_cell(self):
         if self.hparams.num_decoder_layers == 1:
-            self._decoder_cell = model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode)
+            self._decoder_cell = model_utils.single_cell(
+                "lstm", self.hparams.decoder_num_units, self.mode)
         else:
             cells = [model_utils.single_cell("lstm", self.hparams.decoder_num_units, self.mode) for _ in
                      range(self.hparams.num_decoder_layers)]
             self._decoder_cell = tf.nn.rnn_cell.MultiRNNCell(cells)
 
         return self._decoder_cell
+
+    def _get_decoder_initial_state(self, attention_cell, encoder_final_state):
+        initial_state = attention_cell.zero_state(self.batch_size, dtype=tf.float32)
+        if self.hparams.use_encoder_final_state:
+            if encoder_final_state.shape[-1] == self.hparams.decoder_num_units:
+                initial_state = initial_state.clone(
+                    cell_state=tf.contrib.rnn.LSTMStateTuple(encoder_final_state[0], encoder_final_state[1]))
+            else:
+                initial_state = initial_state.clone(
+                    cell_state=tf.contrib.rnn.LSTMStateTuple(
+                        tf.layers.dense(encoder_final_state[0], self.hparams.decoder_num_units),
+                        tf.layers.dense(encoder_final_state[1], self.hparams.decoder_num_units),
+                    ))
+        return initial_state
 
     def _build_decoder(self, encoder_outputs, encoder_final_state):
         with tf.variable_scope('decoder') as decoder_scope:
@@ -342,19 +361,11 @@ class AttentionModel(BaseModel):
             if self.train_mode or self.hparams.forced_decoding:
                 decoder_emb_inp = self.decoder_emb_layer(self.one_hot_targets)
 
-                if self.hparams.use_encoder_final_state:
-                    if encoder_final_state.shape[-1] == self.hparams.decoder_num_units:
-                        initial_state = tf.contrib.rnn.LSTMStateTuple(encoder_final_state[0], encoder_final_state[1])
-                    else:
-                        initial_state = tf.layers.dense(encoder_final_state, self.hparams.decoder_num_units)
-                else:
-                    initial_state = None
-
-                outputs, final_context_state, self.final_sequence_lengths = self._train_decode_fn(
+                self._attention_cell, outputs, final_context_state, self.final_sequence_lengths = self._train_decode_fn(
                     decoder_emb_inp,
                     self.target_seq_len,
-                    initial_state,
                     encoder_outputs,
+                    encoder_final_state,
                     decoder_cell,
                     scope=decoder_scope
                 )
@@ -364,11 +375,11 @@ class AttentionModel(BaseModel):
                 # sample_ids = tf.argmax(logits, axis=-1)
                 sample_ids = self.target_labels
             else:
-                outputs, final_context_state, self.final_sequence_lengths = self._eval_decode_fn(
-                    initial_state=None,
-                    encoder_outputs=encoder_outputs,
-                    decoder_cell=decoder_cell,
-                    scope=decoder_scope)
+                self._attention_cell, outputs, final_context_state, self.final_sequence_lengths = self._eval_decode_fn(
+                    encoder_outputs,
+                    encoder_final_state,
+                    decoder_cell,
+                    decoder_scope)
 
                 if self.hparams.beam_width > 0:
                     _outputs = []

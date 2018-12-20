@@ -12,7 +12,10 @@ class BatchedInput(BaseInputData):
             for line in f.read().split('\n'):
                 if line.strip() == "": continue
 
-                input = {headers[i]: dat for i, dat in enumerate(line.strip().split(hparams.delimiter))}
+                input = { headers[i]: dat 
+                        for i, dat in
+                        enumerate(line.strip().split(hparams.delimiter,
+                            len(headers) - 1))}
                 inputs.append(input)
 
         self.size = len(inputs)
@@ -41,6 +44,7 @@ class BatchedInput(BaseInputData):
         self.iterator = self.batched_dataset.make_initializable_iterator()
 
     def get_word(self, id):
+        if self.vocab[id] == '': return ''
         if self.vocab[id][0] != '<':
             return self.vocab[id].split('+')[0]
         else:
