@@ -11,12 +11,13 @@
   "eval_batch_size": 30,
 
   "learning_rate": 1e-4,
-  "learning_rate_start_decay_epoch": 10,
-  "learning_rate_decay_steps": 5,
+  "learning_rate_start_decay_epoch": 7,
+  "learning_rate_decay_steps": 1,
   "learning_rate_decay_rate": 0.5,
 
   "eos_index": 0,
   "sos_index": 1,
+  "use_encoder_final_state": false,
   "encoder_type": "bilstm",
   "encoder_num_units": 512,
   "num_encoder_layers": 5,

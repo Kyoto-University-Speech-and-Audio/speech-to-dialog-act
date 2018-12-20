@@ -19,6 +19,7 @@
 
   "encoder_type": "pbilstm",
   "encoder_num_units": 512,
+  "use_encoder_final_state": false,
   "num_encoder_layers": 3,
   "num_decoder_layers": 1,
   "decoder_num_units": 512,

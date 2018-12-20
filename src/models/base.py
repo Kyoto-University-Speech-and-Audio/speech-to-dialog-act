@@ -108,3 +108,6 @@ class BaseModel(object):
         :return:
         """
         return tf.trainable_variables()
+
+    def get_extra_ops(self):
+        return []

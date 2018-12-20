@@ -182,7 +182,7 @@ def create_hparams(flags, Model, config=None):
         shuffle=_argval('shuffle'),
         sort_dataset=False,
         batch_size_decay=False,
-        **Model.get_default_params()
+        **Model.default_params
     )
 
     if config is not None:

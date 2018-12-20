@@ -166,7 +166,8 @@ class BaseInputData():
             if self.vocab[c] == '<eos>': return ret  # sos
             if self.vocab[c] == '<sos>': continue
             val = self.get_word(c)
-            ret.append(val if c in self.vocab else '?')
+            if val != '':
+                ret.append(val if c in self.vocab else '?')
         return ret
 
     def shuffle(self, inputs, bucket_size=None):

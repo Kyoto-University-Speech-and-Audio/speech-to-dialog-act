@@ -22,13 +22,11 @@ class CTCModel(BaseModel):
             lambda d: self._batched_input.decode(d, None)
         ]
 
-    @classmethod
-    def get_default_params(cls):
-        return {
-            "num_units": 640,
-            "num_layers": 3,
-            "decoder": "greedy",  # greedy or beam_search
-        }
+    default_params = {
+        "num_units": 640,
+        "num_layers": 3,
+        "decoder": "greedy",  # greedy or beam_search
+    }
 
     def _assign_input(self):
         if self.eval_mode or self.train_mode:

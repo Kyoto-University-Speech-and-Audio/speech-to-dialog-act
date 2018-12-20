@@ -9,8 +9,8 @@
   "delimiter": " ",
   
   "learning_rate": 1e-4,
-  "learning_rate_start_decay_epoch": 10,
-  "learning_rate_decay_steps": 5,
+  "learning_rate_start_decay_epoch": 7,
+  "learning_rate_decay_steps": 1,
   "learning_rate_decay_rate": 0.5,
 
   "norm_mean_path": "data/aps-sps/mean.dat",
@@ -22,6 +22,7 @@
   "use_sos_eos": false,
   "eos_index": 1,
   "sos_index": 2,
+  "use_encoder_final_state": false,
   "encoder_type": "bilstm",
   "encoder_num_units": 512,
   "num_encoder_layers": 5,
@@ -35,5 +36,5 @@
   "beam_width": 16,
   "length_penalty_weight": 0.5,
   "max_gradient_norm": 5.0,
-  "max_epoch_num": 40
+  "max_epoch_num": 20
 }
