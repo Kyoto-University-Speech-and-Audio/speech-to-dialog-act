@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from src.utils import model_utils, utils, ops_utils
+from utils import model_utils, utils, ops_utils
 
 WARMUP_STEPS = 0
 WARMUP_SCHEME = 't2t'

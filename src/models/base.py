@@ -1,5 +1,5 @@
 import tensorflow as tf
-from ..utils import model_utils, utils
+from utils import model_utils, utils
 
 MAX_GRADIENT_NORM = 5.0
 WARMUP_STEPS = 0

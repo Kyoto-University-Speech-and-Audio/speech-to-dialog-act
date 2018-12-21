@@ -1,6 +1,6 @@
 import tensorflow as tf
-from src.utils import model_utils, gpu_utils, utils, ops_utils
-from .trainer import Trainer
+from utils import model_utils, gpu_utils, utils, ops_utils
+from trainers.trainer import Trainer
 import numpy as np
 
 MAX_GRADIENT_NORM = 5.0
@@ -54,13 +54,15 @@ class MultiGPUTrainer(Trainer):
 
             with tf.name_scope("apply_gradients"), tf.device(controller):
                 average_grads = []
+                
                 for grad_and_vars in zip(*tower_grads):
                     grads = [g for g, _ in grad_and_vars]
+                    for g, v in grad_and_vars:
+                        print(g, v)
                     grad = tf.reduce_mean(grads, 0)
                     v = grad_and_vars[0][1]
                     grad_and_var = (grad, v)
                     average_grads.append(grad_and_var)
-
                 self.update = opt.apply_gradients(average_grads, self._global_step)
                 self.loss = tf.reduce_mean(losses)
 

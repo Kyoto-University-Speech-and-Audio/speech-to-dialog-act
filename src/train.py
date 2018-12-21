@@ -6,11 +6,11 @@ import numpy as np
 import sys
 import shutil
 import json
-from . import configs
-from .utils import utils
+import configs
+from utils import utils
 from tqdm import tqdm
-from .trainers.multi_gpu_trainer import MultiGPUTrainer
-from .trainers.trainer import Trainer
+from trainers.multi_gpu_trainer import MultiGPUTrainer
+from trainers.trainer import Trainer
 from tensorflow.python import debug as tf_debug
 
 sys.path.insert(0, os.path.abspath('.'))
@@ -238,8 +238,8 @@ def main(unused_argv):
     hparams.hcopy_config = os.path.join(configs.HCOPY_CONFIG_PATH)
 
     # create directories for logs and saved parameters
-    if not os.path.exists(hparams.summaries_dir): os.mkdir(hparams.summaries_dir)
-    if not os.path.exists(hparams.out_dir): os.mkdir(hparams.out_dir)
+    utils.mkdir(hparams.summaries_dir)
+    utils.mkdir(hparams.out_dir)
     utils.clear_log(hparams)
 
     random_seed = FLAGS.random_seed

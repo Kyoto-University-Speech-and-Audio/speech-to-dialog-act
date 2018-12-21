@@ -5,8 +5,8 @@ from subprocess import call, PIPE
 
 import numpy as np
 import tensorflow as tf
-from ..utils import utils
-import ffmpeg
+from utils import utils
+from pathlib import Path
 
 
 class BaseInputData():
@@ -42,7 +42,7 @@ class BaseInputData():
         self.targets = tf.placeholder(dtype=tf.string)
 
         inputs = []
-        with open(self.data_filename, "r") as f:
+        with open(Path(self.data_filename), "r", encoding=self.hparams.encoding) as f:
             headers = f.readline().split('\t')
             for line in f.read().split('\n')[1:]:
                 if self.mode != tf.estimator.ModeKeys.PREDICT:
@@ -61,7 +61,7 @@ class BaseInputData():
     def load_vocab(self, vocab_file):
         labels = []
         count = 0
-        for s in open(vocab_file, encoding=self.hparams.encoding).read().split('\n'):
+        for s in open(Path(vocab_file), encoding=self.hparams.encoding).read().split('\n'):
             if ' ' in s:  # word id
                 labels.append(s.strip().split(' ', 1))
             else:  # word
@@ -142,6 +142,7 @@ class BaseInputData():
         elif ext == b".npy":
             return self.load_npy(filepath)
         elif ext in {b'.webm'}:
+            import ffmpeg
             stream = ffmpeg.input(filepath)
             output_path = os.path.join('tmp', 'output.wav')
             stream = ffmpeg.output(stream, output_path)

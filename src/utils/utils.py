@@ -1,29 +1,38 @@
 import tensorflow as tf
 import os
-from .. import configs
+import configs
+import pathlib
 
 
 def get_batched_input_class(dataset):
     if dataset == 'default':
-        from ..datasets.default import BatchedInput
+        from datasets.default import BatchedInput
         return BatchedInput
     if dataset == 'swbd':
-        from ..datasets.swbd import BatchedInput
+        from datasets.swbd import BatchedInput
         return BatchedInput
     else:
-        from ..private.utils import get_batched_input_class
+        from private.utils import get_batched_input_class
+        if get_batched_input_class(dataset) is None:
+            raise("Input class not found (%s)." % dataset)
         return get_batched_input_class(dataset)
 
 
 def get_model_class(model_name):
     if model_name == 'ctc':
-        from ..models.ctc import CTCModel
+        from models.ctc import CTCModel
         return CTCModel
     elif model_name == 'attention':
-        from ..models.attention import AttentionModel
+        from models.attention import AttentionModel
         return AttentionModel
+    elif model_name == 'attention_monotonic':
+        from models.attention_monotonic import BahdanauMonotonicAttentionModel
+        return BahdanauMonotonicAttentionModel
     else:
-        from ..private.utils import get_model_class
+        from private.utils import get_model_class
+        if get_model_class(model_name) is None:
+            raise("Model class not found (%s)." % model_name)
+        print(get_model_class(model_name))
         return get_model_class(model_name)
 
 
@@ -186,10 +195,10 @@ def create_hparams(flags, Model, config=None):
     )
 
     if config is not None:
-        json = open('model_configs/%s.json' % config).read()
+        json = open(os.path.join(os.getcwd(), 'model_configs', '%s.json' % config)).read()
         hparams.parse_json(json)
-        hparams.summaries_dir = "log/" + config
-        hparams.out_dir = "saved_models/" + config
+        hparams.summaries_dir = os.path.join(os.getcwd(), "log", config)
+        hparams.out_dir = os.path.join(os.getcwd(), "saved_models", config)
 
     tf.logging.info(hparams)
 
@@ -198,7 +207,7 @@ def create_hparams(flags, Model, config=None):
 
 def update_hparams(flags, hparams):
     if flags.config is not None:
-        json = open('model_configs/%s.json' % flags.config).read()
+        json = open(os.path.join(os.getcwd(), 'model_configs', '%s.json' % flags.config)).read()
         hparams.parse_json(json)
 
 
@@ -220,3 +229,6 @@ def prepare_output_path(hparams):
             os.remove(hparams.result_output_file)
         if hparams.result_output_folder and not os.path.exists(hparams.result_output_folder):
             os.mkdir(hparams.result_output_folder)
+
+def mkdir(path):
+    pathlib.Path(path).mkdir(parents=True, exist_ok=True) 

@@ -5,10 +5,10 @@ import tensorflow as tf
 from tensorflow.python.layers import core as layers_core
 from tensorflow.contrib.seq2seq import BeamSearchDecoder
 
-from .base import BaseModel
-from .attentions.location_based_attention import LocationBasedAttention
-from ..utils import model_utils
-from .helpers.basic_context_decoder import BasicContextDecoder
+from models.base import BaseModel
+from models.attentions.location_based_attention import LocationBasedAttention
+from utils import model_utils
+from models.helpers.basic_context_decoder import BasicContextDecoder
 
 mpl.use('Agg')
 
@@ -106,7 +106,6 @@ class AttentionModel(BaseModel):
         self.logits = logits
 
         self.max_time = tf.shape(self.sample_id)[1]
-
         if self.train_mode or self.eval_mode:
             loss = self._compute_loss(logits, target_labels)
         else:

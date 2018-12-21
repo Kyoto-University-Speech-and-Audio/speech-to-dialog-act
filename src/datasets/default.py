@@ -7,7 +7,7 @@ class BatchedInput(BaseInputData):
         BaseInputData.__init__(self, hparams, mode, batch_size, dev)
         
         inputs = []
-        with open(self.data_filename, "r") as f:
+        with open(self.data_filename, "r", encoding=hparams.encoding) as f:
             headers = f.readline().strip().split(hparams.delimiter)
             for line in f.read().split('\n'):
                 if line.strip() == "": continue
