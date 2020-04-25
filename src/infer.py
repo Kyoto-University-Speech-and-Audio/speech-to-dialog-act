@@ -3,12 +3,13 @@ import os
 import tensorflow as tf
 import sys
 
-from .models.base import BaseModelWrapper
-from .utils import utils, ops_utils
+from models.base import BaseModelWrapper
+from utils import utils, ops_utils
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
 tf.logging.info('test')
+
 
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")

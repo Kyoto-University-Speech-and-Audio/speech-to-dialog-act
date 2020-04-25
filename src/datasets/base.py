@@ -44,7 +44,7 @@ class BaseInputData():
         inputs = []
         with open(Path(self.data_filename), "r", encoding=self.hparams.encoding) as f:
             headers = f.readline().split('\t')
-            for line in f.read().split('\n')[1:]:
+            for line in f.read().split('\n'):
                 if self.mode != tf.estimator.ModeKeys.PREDICT:
                     if line.strip() == "": continue
                     input = {headers[i]: dat for i, dat in enumerate(line.strip().split('\t'))}
@@ -69,7 +69,12 @@ class BaseInputData():
                 count += 1
         
         vocab = {int(id): label for label, id in labels}
-        if self.hparams.get('use_sos_eos', False):
+        return vocab
+        if True or self.hparams.get('use_sos_eos', False):
+            #self.hparams.eos_index = 0
+            #self.hparams.sos_index = 1
+            #vocab[0] = '<eos>'
+            #vocab[1] = '<sos>'
             self.hparams.eos_index = len(labels)
             self.hparams.sos_index = len(labels) + 1
             vocab[len(labels)] = '<eos>'
@@ -95,7 +100,7 @@ class BaseInputData():
         call([
             self.hparams.hcopy_path,
             "-C", self.hparams.hcopy_config, "-T", "1",
-            filename, outfile
+            filename.decode('ascii'), outfile
         ], stdout=PIPE)
         fh = open(outfile, "rb")
         spam = fh.read(12)
@@ -130,10 +135,13 @@ class BaseInputData():
 
     def load_npy(self, filename):
         # return np.array([[0.0]], dtype=np.float32)
-        dat = np.load(filename.decode('utf-8')).astype(np.float32)
-        return dat
+        if os.path.exists(filename.decode('utf-8')):
+            return np.load(filename.decode('utf-8')).astype(np.float32)
+        else:
+            return np.array([[0.0]], dtype=np.float32)
 
     def load_input(self, filepath):
+        print(filepath)
         ext = os.path.splitext(filepath)[1]
         if ext == b".htk":
             return self.load_htk(filepath)

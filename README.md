@@ -1,6 +1,6 @@
-# Experimental speech recognition library
+## Experimental speech recognition library
 
-## Examples
+### Examples
 
 Train a model
 
@@ -22,7 +22,7 @@ Online inference: launch a program on terminal which listens to microphone and d
 python -m src.infer_online --config=attention_aps_sps_char
 ```
 
-## Data Preparation
+### Data Preparation
 
 Default loader reads data from a file with the following syntax (you can define your own inputting method in `src/datasets`)
 
@@ -35,9 +35,9 @@ where `<path_to_audio_file>` can be `wav`, `htk` or `npy` file that contains ori
 
 If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolkit in `configs.py`. A vocabulary files must also be prepared with each line containing a label (word or character). See below for model configurations.
 
-## Arguments & Configurations
+### Arguments & Configurations
 
-### Model Configuration
+#### Model Configuration
 
 `--config`: Name of the json config files (placed in `model_configs`) containing all hyper-parameters and options for training and evaluating model. An example of config file:
 
@@ -69,7 +69,7 @@ If you use `wav`, you have to provide the paths to HTK Speech Recognition Toolki
 }
 ```
 
-### Load and Save
+#### Load and Save
 
 Default behaviour is training from last saved model. These method can be used for optional load.
 
@@ -81,35 +81,35 @@ Default behaviour is training from last saved model. These method can be used fo
 
 `--saved_steps` (default: 300): Save model after this number of steps
 
-### Training
+#### Training
 
 `--batch_size` (default: 32)
 
 `--shuffle`: Shuffle data after each epoch
 
-### Evaluating
+#### Evaluating
 
 `--eval` (default: 0): update word error rate on tensorboard after a number of steps. If 0, evaluation is run after each epoch.
 
-### Others
+#### Others
 
 `--verbose`: print debug information
 
 `--debug`: run with tensorflow's debug mode
 
-## Outputs
+### Outputs
 
 `saved_models/<model_name>`: Each checkpoint is saved as `csp.<tag>.ckpt`. Load a pretrained model by specifying `<tag>`
 
 `log/<model_name>`: Log folder for tensorboard. Launch tensorboard by running `tensorboard --logdir=log`
 
-## Customizing for experiment
+### Customizing for experiment
 
 New model should be subclassed from `BaseModel`, which handles loading hyper-parameters.
 
 `AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional components or embeddings by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
 
-## Results
+### Results
 
 Results with sample configurations:
 
@@ -121,7 +121,7 @@ Results with sample configurations:
 |`ctc_vivos`|ctc|vivos (Vietnamese) | char | - |
 |`attention_vivos`|attention|vivos(Vietnamese)|char|-|
 
-## Checkpoint
+### Checkpoint
 
 - [x] CTC loss
 - [x] Attention mechanism
@@ -129,7 +129,7 @@ Results with sample configurations:
 - [ ] Joint CTC-attention
 - [ ] Tacotron2
 
-## Live Demo
+### Live Demo
 
 Model can be tested with your voice in real time with a simple frontend interface (ReactJS). You need to edit the paths to your config and model files in `server.py`.
 
@@ -146,8 +146,6 @@ cd frontend
 npm install & npm start
 ```
 
-## Others
+## Dialog act recognition
 
-This is my article for an intuitive explanation on how attention mechanism works: [Sequence to sequence learning with attention mechanism](https://medium.com/@viettrungdang/sequence-to-sequence-learning-with-attention-mechanism-a8964b5e301e)
-
-Most of the datasets are not public, but if you have access to any, you can refer to my pre-processing code in `src/preproc`. The code is written inside a Jupyter Notebook (not so well-organized)
+Code for dialog act recognition is located at `src/models/private`

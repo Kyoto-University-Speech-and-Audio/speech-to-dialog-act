@@ -27,7 +27,7 @@ def add_arguments(parser):
     parser.add_argument('--debug', type="bool", const=True, nargs="?", default=False)
     parser.add_argument('--shuffle', type="bool", const=True, nargs="?", default=False,
                         help="Shuffle dataset")
-    parser.add_argument('--eval', type=int, default=0,
+    parser.add_argument('--eval', type=int, default=400,
                         help="Frequently check and log evaluation result")
     parser.add_argument('--eval_from', type=int, default=0,
                         help="No. of epoch before eval")
@@ -92,6 +92,8 @@ def train(Model, BatchedInput, hparams):
     hparams.beam_width = 0
     graph = tf.Graph()
     mode = tf.estimator.ModeKeys.TRAIN
+    print("Model:", Model)
+    print("Dataset:", BatchedInput)
     with graph.as_default():
         trainer = MultiGPUTrainer(hparams, Model, BatchedInput, mode)
         trainer.build_model(eval=True)
@@ -108,6 +110,7 @@ def train(Model, BatchedInput, hparams):
         sess.run(tf.tables_initializer())
 
         load_model(sess, Model, hparams)
+        print("Model loaded.")
 
         if argval("simulated"):
             # not real training, only to export values
@@ -137,7 +140,7 @@ def train(Model, BatchedInput, hparams):
 
         pbar = reset_pbar()
         last_epoch = trainer.epoch
-        dev_lers = {}
+        dev_lers = None
         min_dev_lers = {}
         test_lers = {}
         min_test_lers = {}
@@ -145,7 +148,6 @@ def train(Model, BatchedInput, hparams):
         eval_step = int(argval("eval"))
 
         trainer.reset_train_iterator(sess)
-
         while trainer.epoch <= hparams.max_epoch_num:
             # utils.update_hparams(FLAGS, hparams) # renew hparams so paramters can be changed during training
 
@@ -222,15 +224,20 @@ def train(Model, BatchedInput, hparams):
             if trainer.epoch > last_epoch:  # reset epoch
                 pbar = reset_pbar()
                 last_epoch = trainer.epoch
+            
+            # return
 
 
 def main(unused_argv):
     if FLAGS.config is None: 
         raise Exception("Config file must be provided")
     
-    json_file = open('model_configs/%s.json' % FLAGS.config).read()
+    if os.path.exists('model_configs/private/%s.json' % FLAGS.config):
+        json_file = open('model_configs/private/%s.json' % FLAGS.config).read()
+    else:
+        json_file = open('model_configs/%s.json' % FLAGS.config).read()
     json_dict = json.loads(json_file)
-    BatchedInput = utils.get_batched_input_class(json_dict.get("input", "default"))
+    BatchedInput = utils.get_batched_input_class(json_dict.get("dataset", "default"))
     Model = utils.get_model_class(json_dict.get("model"))
     
     hparams = utils.create_hparams(FLAGS, Model)
@@ -247,6 +254,7 @@ def main(unused_argv):
         random.seed(random_seed)
         np.random.seed(random_seed)
 
+    print("Load training model...")
     train(Model, BatchedInput, hparams)
 
 

@@ -10,24 +10,24 @@ class BatchedInput(BaseInputData):
         with open(self.data_filename, "r", encoding=hparams.encoding) as f:
             headers = f.readline().strip().split(hparams.delimiter)
             for line in f.read().split('\n'):
-                if line.strip() == "": continue
+                if line.strip() == "":
+                    continue
 
-                input = { headers[i]: dat 
-                        for i, dat in
-                        enumerate(line.strip().split(hparams.delimiter,
-                            len(headers) - 1))}
+                input = {headers[i]: dat
+                         for i, dat in enumerate(line.strip().split(hparams.delimiter, len(headers) - 1))}
                 inputs.append(input)
 
         self.size = len(inputs)
         self.inputs = inputs
 
+        # print(self.decode([2, 1653, 28894, 3859, 2746, 5039, 3735, 4356, 1], None))
+
     def init_dataset(self):
         src_dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
-        src_dataset = src_dataset.map(lambda filename: (filename, tf.py_func(self.load_input, [filename], tf.float32)))
+        src_dataset = src_dataset.map(lambda filename: (filename, tf.py_function(self.load_input, [filename], tf.float32)))
         src_dataset = src_dataset.map(lambda filename, feat: (filename, feat, tf.shape(feat)[0]))
 
         if self.mode == tf.estimator.ModeKeys.PREDICT:
-            src_tgt_dataset = src_dataset
             self.batched_dataset = src_dataset.padded_batch(
                 self.batch_size,
                 padded_shapes=([], [None, self.hparams.num_features], []),
@@ -36,7 +36,7 @@ class BatchedInput(BaseInputData):
         else:
             tgt_dataset = tf.data.Dataset.from_tensor_slices(self.targets)
             tgt_dataset = tgt_dataset.map(
-                lambda str: tf.cast(tf.py_func(self.extract_target_features, [str], tf.int64), tf.int32))
+                lambda str: tf.cast(tf.py_function(self.extract_target_features, [str], tf.int64), tf.int32))
             tgt_dataset = tgt_dataset.map(lambda feat: (tf.cast(feat, tf.int32), tf.shape(feat)[0]))
             src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
             self.batched_dataset = self.get_batched_dataset(src_tgt_dataset)

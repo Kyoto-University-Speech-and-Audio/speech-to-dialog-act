@@ -5,9 +5,9 @@ import numpy as np
 import tensorflow as tf
 import json
 
-from src.trainers.trainer import Trainer
-from .utils import utils, ops_utils
-from . import configs
+from trainers.trainer import Trainer
+from utils import utils, ops_utils
+import configs
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.abspath('.'))
@@ -23,6 +23,8 @@ def add_arguments(parser):
 
     parser.add_argument('--load', type=str, default=None)
     parser.add_argument('--output', type="bool", const=True, nargs="?", default=False)
+    parser.add_argument('--transfer', type="bool", const=True, nargs="?", default=False,
+                        help="If model needs custom load.")
 
     parser.add_argument("--summaries_dir", type=str, default="log")
     parser.add_argument("--out_dir", type=str, default=None,
@@ -37,8 +39,10 @@ def load_model(sess, Model, hparams):
     else:
         ckpt = tf.train.latest_checkpoint(hparams.out_dir)
 
-    # Model.load(sess, ckpt, None)
-    # return
+    if args.transfer: # transfer
+        Model.load(sess, ckpt, None)
+        return
+    
     if ckpt:
         saver_variables = tf.global_variables()
         var_list = {var.op.name: var for var in saver_variables}
@@ -46,7 +50,20 @@ def load_model(sess, Model, hparams):
                                                     "eval_batch_size", 'Variable_1']:
             if var in var_list:
                 del var_list[var]
-        saver = tf.train.Saver(var_list=var_list)
+
+        new_var_list = {}
+        for var in var_list:
+            print(var)
+            newvar = None
+            if var[:7] == "encoder":
+                newvar = var[8:]
+            if "decoder_emb_layer" in var:
+                newvar = var.replace('decoder_emb_layer', 'dense')
+            
+            if newvar is not None:
+                new_var_list[newvar] = var_list[var]
+        
+        saver = tf.train.Saver(var_list=new_var_list)
         saver.restore(sess, ckpt)
 
 
@@ -71,7 +88,8 @@ def eval(hparams, args, Model, BatchedInput):
         pbar.set_description("Eval")
         fo = open(os.path.join(hparams.summaries_dir, "eval_ret.txt"), "w")
         utils.prepare_output_path(hparams)
-        lers = {}
+        errs = {}
+        ref_lens = {}
         while True:
             try:
                 ids, ground_truth_labels, predicted_labels, ground_truth_len, predicted_len = trainer.eval(sess)
@@ -94,7 +112,7 @@ def eval(hparams, args, Model, BatchedInput):
                                 decode_fns[acc_id],
                             )
                         else:
-                            ler, str_original, str_decoded = ops_utils.evaluate(
+                            err, ref_len, str_original, str_decoded = ops_utils.evaluate(
                                 gt_labels[i],
                                 # gt_labels[i][:gt_len[i]],
                                 p_labels[i],
@@ -102,8 +120,10 @@ def eval(hparams, args, Model, BatchedInput):
                                 decode_fns[acc_id],
                                 metrics[acc_id],
                                 acc_id)
-                        if ler is not None:
-                            lers[acc_id].append(ler)
+                        
+                        if err is not None:
+                            errs[acc_id].append(err)
+                            ref_lens[acc_id].append(ref_len)
 
                             if hparams.input_unit == "word":
                                 str_original = ' '.join(str_original)
@@ -112,7 +132,9 @@ def eval(hparams, args, Model, BatchedInput):
                                 str_original = ''.join(str_original).replace('_', ' ')
                                 str_decoded = ''.join(str_decoded).replace('_', ' ')
                             
-                            tqdm.write("\nGT: %s\nPR: %s\nLER: %.3f\n" % (str_original, str_decoded, ler))
+                            tqdm.write("\nGT: %s\nPR: %s\nLER: %.3f\n" % (str_original, str_decoded, err / ref_len))
+                            #tqdm.write(str(p_labels[i]))
+                            #tqdm.write("%d %d" % (gt_len[i], p_len[i]))
 
                             meta = tf.SummaryMetadata()
                             meta.plugin_data.plugin_name = "text"
@@ -121,7 +143,7 @@ def eval(hparams, args, Model, BatchedInput):
                 pbar.update(trainer.batch_size)
                 bar_pf = {}
                 for acc_id in range(len(ground_truth_labels)):
-                    bar_pf["er" + str(acc_id)] = "%2.2f" % (sum(lers[acc_id]) / len(lers[acc_id]) * 100)
+                    bar_pf["er" + str(acc_id)] = "%2.2f" % (sum(errs[acc_id]) / sum(ref_lens[acc_id]) * 100)
                 pbar.set_postfix(bar_pf)
             except tf.errors.OutOfRangeError:
                 break
@@ -144,7 +166,10 @@ def main(unused_argv):
     if args.config is None:
         raise Exception("Config file must be provided")
 
-    json_file = open('model_configs/%s.json' % args.config).read()
+    if os.path.exists('model_configs/private/%s.json' % args.config):
+        json_file = open('model_configs/private/%s.json' % args.config).read()
+    else:
+        json_file = open('model_configs/%s.json' % args.config).read()
     json_dict = json.loads(json_file)
     BatchedInput = utils.get_batched_input_class(json_dict.get("dataset", "default"))
     Model = utils.get_model_class(json_dict.get("model"))

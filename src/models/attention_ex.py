@@ -10,14 +10,10 @@ import tensorflow as tf
 from tensorflow.python.layers import core as layers_core
 from tensorflow.contrib.seq2seq import BeamSearchDecoder
 
-from .base import BaseModel
+from .attention import AttentionModel as BaseModel
 from .attentions.location_based_attention import LocationBasedAttention
-from ..utils import model_utils
+from utils import model_utils
 from .helpers.basic_context_decoder import BasicContextDecoder
-
-mpl.use('Agg')
-
-SAMPLING_TEMPERATURE = 0
 
 
 class AttentionExModel(BaseModel):
@@ -34,7 +30,10 @@ class AttentionExModel(BaseModel):
         return self
 
     def get_extra_ops(self):
-        # return [self.beam_scores]
+        if self.hparams.output_type == 'beam_scores':
+            return [self.beam_scores]
+        elif self.hparams.output_type == 'sample_ids':
+            return []
         return [self.encoder_outputs, self.encoder_final_state]
         return []
         return [self.decoder_outputs]
@@ -78,20 +77,29 @@ class AttentionExModel(BaseModel):
     def load(cls, sess, ckpt, flags):
         saver_variables = tf.global_variables()
         var_list = {}
-        for var in saver_variables: print(var.op.name)
-        for var in saver_variables:
-            var_list[var.op.name] = var
-            if var.op.name in ["asr/decoder/beam_outputs/memory_layer/kernel"]:
-                del var_list[var.op.name]
-        #    if var.op.name[:7] == "encoder":
-        #        var_list[var.op.name] = var
+        if False:
+            for var in saver_variables:
+                var_list[var.op.name] = var
+                if var.op.name in ["asr/decoder/beam_outputs/memory_layer/kernel"]:
+                    del var_list[var.op.name]
+            #    if var.op.name[:7] == "encoder":
+            #        var_list[var.op.name] = var
+            sess.run([
+                tf.assign(sess.graph.get_tensor_by_name("asr/decoder/beam_outputs/memory_layer/kernel:0"),
+              
+                    sess.graph.get_tensor_by_name("asr/decoder/memory_layer/kernel:0"))
+            ])
+        if True:
+            for var in saver_variables:
+                if var.op.name in ['Variable', 'Variable_1', 'batch_size',
+                        'eval_batch_size']:
+                    var_list[var.op.name] = var
+                else:
+                    var_list['asr/' + var.op.name] = var
+        
         saver = tf.train.Saver(var_list=var_list)
         saver.restore(sess, ckpt)
 
-        sess.run([
-            tf.assign(sess.graph.get_tensor_by_name("asr/decoder/beam_outputs/memory_layer/kernel:0"),
-                      sess.graph.get_tensor_by_name("asr/decoder/memory_layer/kernel:0"))
-        ])
 
     def output_result(self, ground_truth_labels, predicted_labels,
                       ground_truth_label_len, predicted_label_len, extra_ops, eval_count):
@@ -104,13 +112,23 @@ class AttentionExModel(BaseModel):
                 _ids1 = [str(id) for id in ids1 if id < self.hparams.vocab_size - 2]
                 _ids2 = [str(id) for id in ids2 if id < self.hparams.vocab_size - 2]
                 fn = "%s/%d.npy" % (self.hparams.result_output_folder, eval_count)
-                f.write('\t'.join([
-                    # filename.decode(),
-                    ' '.join([str(x) for x in ex1[-1]])
-                    # ' '.join(_ids1),
-                    # ' '.join(_ids2),
-                    # ' '.join(self._batched_input_test.decode(ids2)),
-                    # fn
-                ]) + '\n')
+
+                if self.hparams.output_type == 'beam_scores':
+                    f.write('\t'.join([
+                        # filename.decode(),
+                        ' '.join([str(x) for x in ex1[-1]])
+                        # ' '.join(_ids1),
+                        # ' '.join(_ids2),
+                        # ' '.join(self._batched_input_test.decode(ids2)),
+                        # fn
+                    ]) + '\n')
+                elif self.hparams.output_type == 'sample_ids':
+                    f.write('\t'.join([
+                        # filename.decode(),
+                        ' '.join(_ids1),
+                        ' '.join(_ids2),
+                        # ' '.join(self._batched_input_test.decode(ids2)),
+                        # fn
+                    ]) + '\n')
                 # att = att[:len(_ids2), :]
                 # np.save(fn, att)

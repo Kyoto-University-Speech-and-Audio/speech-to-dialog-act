@@ -236,7 +236,7 @@ class BahdanauMonotonicAttentionModel(BaseAttentionModel):
             memory_sequence_length=input_seq_len,
             score_bias_init=-3.0,
             sigmoid_noise=1,
-            mode='parallel'
+            mode='hard'
         )
 
     def _monotonic_train_decode_fn(

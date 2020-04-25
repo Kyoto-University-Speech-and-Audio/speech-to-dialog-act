@@ -23,7 +23,8 @@ class AttentionModel(BaseModel):
             train_decode_fn=None,
             eval_decode_fn=None,
             attention_wrapper_fn=tf.contrib.seq2seq.AttentionWrapper,
-            greedy_embedding_helper_fn=tf.contrib.seq2seq.GreedyEmbeddingHelper,
+            training_helper=tf.contrib.seq2seq.TrainingHelper,
+            greedy_embedding_helper=tf.contrib.seq2seq.GreedyEmbeddingHelper,
             force_alignment_history=False):
         super().__init__()
         self._attention_fn = attention_fn or self._attention_fn_default
@@ -32,7 +33,8 @@ class AttentionModel(BaseModel):
         self._eval_decode_fn = eval_decode_fn or self._eval_decode_fn_default
         self._attention_wrapper_fn = attention_wrapper_fn
         self._attention_cell = None
-        self._greedy_embedding_helper_fn = greedy_embedding_helper_fn
+        self._greedy_embedding_helper = greedy_embedding_helper
+        self._training_helper = training_helper
         self._alignment_history = force_alignment_history
 
     def get_ground_truth_label_placeholder(self):
@@ -84,7 +86,6 @@ class AttentionModel(BaseModel):
 
     def _build_graph(self):
         if not self.infer_mode:
-            self.one_hot_targets = tf.one_hot(self.targets, depth=self.hparams.vocab_size)
             # remove <sos> in target labels to feed into output
             target_labels = tf.slice(self.targets, [0, 1],
                                      [self.batch_size, tf.shape(self.targets)[1] - 1])
@@ -200,17 +201,23 @@ class AttentionModel(BaseModel):
         return cell
 
     def _train_decode_fn_default(
-            self, decoder_inputs, target_seq_len,
+            self, targets, target_seq_len,
             encoder_outputs, encoder_final_state, 
             decoder_cell,
             scope, context=None):
+
         attention_cell = self._get_attention_cell(
             decoder_cell,
             encoder_outputs,
             self.input_seq_len
         )
 
-        helper = tf.contrib.seq2seq.TrainingHelper(decoder_inputs, target_seq_len)
+        one_hot_targets = tf.one_hot(targets, depth=self.hparams.vocab_size)
+        helper = self._training_helper(
+            self.decoder_emb_layer(one_hot_targets), 
+            target_seq_len
+        )
+        
         decoder = BasicContextDecoder(
             attention_cell, 
             helper, 
@@ -222,6 +229,7 @@ class AttentionModel(BaseModel):
             swap_memory=True,
             scope=scope)
 
+        print(final_state)
         return attention_cell, outputs, final_state, final_output_lengths
 
     def _eval_decode_fn_default(
@@ -265,7 +273,7 @@ class AttentionModel(BaseModel):
                     seed=1001
                 )
             else:
-                helper = self._greedy_embedding_helper_fn(
+                helper = self._greedy_embedding_helper(
                     embed_fn,
                     start_tokens=tf.fill([self.batch_size], self.hparams.sos_index),
                     end_token=self.hparams.eos_index,
@@ -282,7 +290,7 @@ class AttentionModel(BaseModel):
         outputs, final_context_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(
             decoder,
             swap_memory=True,
-            maximum_iterations=100,
+            maximum_iterations=200,
             scope=scope)
 
         return attention_cell, outputs, final_context_state, final_sequence_lengths
@@ -331,10 +339,8 @@ class AttentionModel(BaseModel):
             self.decoder_emb_layer = tf.layers.Dense(self.hparams.decoder_num_units, name="decoder_emb_layer")
 
             if self.train_mode or self.hparams.forced_decoding:
-                decoder_emb_inp = self.decoder_emb_layer(self.one_hot_targets)
-
                 self._attention_cell, outputs, final_context_state, self.final_sequence_lengths = self._train_decode_fn(
-                    decoder_emb_inp,
+                    self.targets,
                     self.target_seq_len,
                     encoder_outputs,
                     encoder_final_state,
@@ -355,34 +361,35 @@ class AttentionModel(BaseModel):
 
                 if self.hparams.beam_width > 0:
                     _outputs = []
-
-                    """
-                    for i in range(1): #range(self.hparams.beam_width):
-                        sample_ids = outputs.predicted_ids[:, :, i]
-                        sample_ids = tf.pad(
-                            sample_ids, 
-                            tf.constant([[0, 0], [1, 0]]), 
-                            constant_values=self.hparams.sos_index
-                        )
-                        one_hot = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
-                        with tf.variable_scope("beam_outputs"):
-                            _outputs.append(self._train_decode_fn(
-                                self.decoder_emb_layer(one_hot),
-                                self.final_sequence_lengths[i],
-                                initial_state=None,
-                                encoder_outputs=encoder_outputs,
-                                decoder_cell=decoder_cell,
-                                scope=decoder_scope
-                            ))
-                    self.decoder_outputs = _outputs[0][0].rnn_output
-                    self.final_sequence_lengths = _outputs[0][2]
-                    sample_ids = _outputs[0][0].sample_id
-                    print(self.decoder_outputs)
-                    logits = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
-                    """
-                    self.beam_scores = outputs.beam_search_decoder_output.scores
-                    sample_ids = outputs.predicted_ids[:, :, 0]
-                    logits = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
+                    if False: # output a particular beam search result
+                        for i in range(self.hparams.beam_width):
+                            sample_ids = outputs.predicted_ids[:, :, i]
+                            sample_ids = tf.pad(
+                                sample_ids, 
+                                tf.constant([[0, 0], [1, 0]]), 
+                                constant_values=self.hparams.sos_index
+                            )
+                            one_hot = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
+                            with tf.variable_scope("beam_outputs"):
+                                _outputs.append(self._train_decode_fn(
+                                    self.decoder_emb_layer(one_hot),
+                                    self.final_sequence_lengths[i],
+                                    # initial_state=None,
+                                    encoder_final_state=encoder_final_state,
+                                    encoder_outputs=encoder_outputs,
+                                    decoder_cell=decoder_cell,
+                                    scope=decoder_scope
+                                ))
+                        beam_id = 1
+                        self.decoder_outputs = _outputs[beam_id][0].rnn_output
+                        self.final_sequence_lengths = _outputs[beam_id][2]
+                        sample_ids = _outputs[beam_id][0].sample_id
+                        logits = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
+                    
+                    else:
+                        self.beam_scores = outputs.beam_search_decoder_output.scores
+                        sample_ids = outputs.predicted_ids[:, :, 4]
+                        logits = tf.one_hot(sample_ids, depth=self.hparams.vocab_size)
                 else:
                     self.decoder_outputs = outputs.rnn_output
                     sample_ids = outputs.sample_id

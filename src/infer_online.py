@@ -8,13 +8,12 @@ import json
 import pyaudio
 import tensorflow as tf
 
-from src.trainers.trainer import Trainer
-from . import configs
-from .utils import utils
+from trainers.trainer import Trainer
+import configs
+from utils import utils
 
 sys.path.insert(0, os.path.abspath('.'))
 tf.logging.set_verbosity(tf.logging.INFO)
-
 
 def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
@@ -23,15 +22,16 @@ def add_arguments(parser):
 
 
 def infer(wav_file, sess, trainer):
+    print(trainer.hparams.input_path)
     with open(trainer.hparams.input_path, "w") as f:
         f.write("sound\n")
         f.write(wav_file + "\n")
 
     with sess.graph.as_default():
-        trainer.infer(sess)
+        print(trainer.infer(sess))
 
 
-def load_model(sess, Model, hparams):
+def load_model(sess, model_cls, hparams):
     sess.run(tf.global_variables_initializer())
 
     if hparams.load:
@@ -40,14 +40,37 @@ def load_model(sess, Model, hparams):
         ckpt = tf.train.latest_checkpoint(hparams.out_dir)
 
     if ckpt:
-        saver = tf.train.Saver()
+        saver_variables = tf.global_variables()
+        var_list = {var.op.name: var for var in saver_variables}
+        for var in model_cls.ignore_save_variables() + ["batch_size",
+                                                    "eval_batch_size", 'Variable_1']:
+            if var in var_list:
+                del var_list[var]
+
+        new_var_list = {}
+        for var in var_list:
+            print(var)
+            if var[:7] == "encoder":
+                new_var = var[8:]
+            elif "decoder_emb_layer" in var:
+                new_var = var.replace('decoder_emb_layer', 'dense')
+            else:
+                new_var = var
+            
+            if new_var is not None:
+                new_var_list[new_var] = var_list[var]
+
+        for var in new_var_list:
+            print(var, '|', new_var_list[var].op.name, '|', new_var_list[var].shape)
+
+        saver = tf.train.Saver(var_list=new_var_list)
         saver.restore(sess, ckpt)
 
+FORMAT = pyaudio.paInt16
+RATE = 16000
+CHUNK = 1024
 
 def record(filename):
-    FORMAT = pyaudio.paInt16
-    RATE = 16000
-    CHUNK = 1024
     audio = pyaudio.PyAudio()
     stream = audio.open(format=FORMAT, channels=1,
                         rate=RATE,
@@ -83,13 +106,12 @@ def record(filename):
     stream.close()
     audio.terminate()
     # writing to file
-    wavfile = wave.open(filename, 'wb')
-    wavfile.setnchannels(1)
-    wavfile.setsampwidth(audio.get_sample_size(FORMAT))
-    wavfile.setframerate(RATE)
-    wavfile.writeframes(b''.join(frames))  # append frames recorded to file
-    wavfile.close()
-
+    wav_file = wave.open(filename, 'wb')
+    wav_file.setnchannels(1)
+    wav_file.setsampwidth(audio.get_sample_size(FORMAT))
+    wav_file.setframerate(RATE)
+    wav_file.writeframes(b''.join(frames))  # append frames recorded to file
+    wav_file.close()
 
 def play(filename):
     chunk = 1024
@@ -145,19 +167,18 @@ def main(unused_argv):
         sess = tf.Session(graph=graph)
         load_model(sess, model_cls, hparams)
         trainer.init(sess)
-    
-    os.system('cls')  # clear screen
 
+    exit()
+    os.system('cls')  # clear screen
     #infer("test.wav", sess, trainer)
     #return
     while True:
-        # if input("Start recording? [Y/n]: ") != 'n':
-        print("Recording...", end="\r")
-        record("test.wav")
-        # infer(hparams)
-        # record()
-        print("Inferring...", end="\r")
-        infer("test.wav", sess, trainer)
+        if input("Start recording? [Y/n]: ") != 'n':
+            print("Recording...")
+            record("test.wav")
+            # infer(hparams)
+            print("Inferring...")
+            infer("test.wav", sess, trainer)
 
 
 if __name__ == "__main__":

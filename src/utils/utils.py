@@ -2,6 +2,7 @@ import tensorflow as tf
 import os
 import configs
 import pathlib
+from pathlib import Path
 
 
 def get_batched_input_class(dataset):
@@ -25,6 +26,9 @@ def get_model_class(model_name):
     elif model_name == 'attention':
         from models.attention import AttentionModel
         return AttentionModel
+    elif model_name == 'attention_ex':
+        from models.attention_ex import AttentionExModel
+        return AttentionExModel
     elif model_name == 'attention_monotonic':
         from models.attention_monotonic import BahdanauMonotonicAttentionModel
         return BahdanauMonotonicAttentionModel
@@ -32,7 +36,6 @@ def get_model_class(model_name):
         from private.utils import get_model_class
         if get_model_class(model_name) is None:
             raise("Model class not found (%s)." % model_name)
-        print(get_model_class(model_name))
         return get_model_class(model_name)
 
 
@@ -157,10 +160,10 @@ def create_hparams(flags, Model, config=None):
         load_voice=True,
         encoding="utf-8",
         output_result=_argval("output") or False,
+        output_type=None,
         result_output_file=None,
         result_output_folder=None,
         simulated=_argval("simulated") or False,
-        joint_training=False,
         metrics="wer",
         
         # learning rate
@@ -195,7 +198,7 @@ def create_hparams(flags, Model, config=None):
     )
 
     if config is not None:
-        json = open(os.path.join(os.getcwd(), 'model_configs', '%s.json' % config)).read()
+        json = open(get_config_path(config)).read()
         hparams.parse_json(json)
         hparams.summaries_dir = os.path.join(os.getcwd(), "log", config)
         hparams.out_dir = os.path.join(os.getcwd(), "saved_models", config)
@@ -230,5 +233,15 @@ def prepare_output_path(hparams):
         if hparams.result_output_folder and not os.path.exists(hparams.result_output_folder):
             os.mkdir(hparams.result_output_folder)
 
+
 def mkdir(path):
     pathlib.Path(path).mkdir(parents=True, exist_ok=True) 
+
+
+def get_config_path(config_name):
+    path = Path('model_configs/%s.json' % config_name)
+    if not os.path.exists(path):
+        path = Path('model_configs/private/%s.json' % config_name)
+        if not os.path.exists(path):
+            raise Exception("Config file not found.")
+    return path

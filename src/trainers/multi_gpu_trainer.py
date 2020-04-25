@@ -57,8 +57,6 @@ class MultiGPUTrainer(Trainer):
                 
                 for grad_and_vars in zip(*tower_grads):
                     grads = [g for g, _ in grad_and_vars]
-                    for g, v in grad_and_vars:
-                        print(g, v)
                     grad = tf.reduce_mean(grads, 0)
                     v = grad_and_vars[0][1]
                     grad_and_var = (grad, v)

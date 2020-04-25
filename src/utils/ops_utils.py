@@ -1,4 +1,4 @@
-import tensorflow as tf
+#import tensorflow as tf
 
 def sparse_tensor(densed_tensor, padding_value=0):
     # indices = tf.where(tf.not_equal(densed_tensor, tf.constant(-1, densed_tensor.dtype)))
@@ -66,11 +66,20 @@ def calculate_ler(target, result, decode_fn, id=None, dist_fn=levenshtein):
     str_decoded = decode_fn(result)
     str_original = list(filter(lambda it: it != '<sp>', str_original))
     str_decoded = list(filter(lambda it: it != '<sp>', str_decoded))
+
+    def proc(s):
+        s = s.replace('_1', '')
+        s = s.replace('uhhum', 'uhhuh')
+        return s
+
+    str_original = [proc(s) for s in str_original]
+    str_decoded = [proc(s) for s in str_decoded]
+
     with open('log.log', 'a') as f:
         f.write("Original: %s\nDecoded: %s\n" % (str_original, str_decoded))
     if len(str_original) != 0:
         ler = dist_fn(str_original, str_decoded) / len(str_original)
-        return min(1.0, ler), str_original, str_decoded
+        return dist_fn(str_original, str_decoded), len(str_original), str_original, str_decoded
     else: return None, str_original, str_decoded
 
 
@@ -146,7 +155,7 @@ def evaluate(target, result, decode_fn, metrics="wer", id=None):
         if len(target) != 0:
             ler = levenshtein(target, result) / len(target)
             return min(1.0, ler), target, result
-    elif metrics == "ter":  
+    elif metrics == "ter":
         # tag error rate
         target = decode_fn(target)
         cur_tag = None
@@ -155,7 +164,7 @@ def evaluate(target, result, decode_fn, metrics="wer", id=None):
             if target[i][:2] == '</':
                 if target[i] != '</da>': # tag
                     cur_tag = target[i]
-            else: 
+            else:
                 if cur_tag is not None: t.append(cur_tag)
 
         result = decode_fn(result)
@@ -165,17 +174,17 @@ def evaluate(target, result, decode_fn, metrics="wer", id=None):
             if result[i][:2] == '</':
                 if result[i] != '</da>': # tag
                     cur_tag = result[i]
-            else: 
+            else:
                 if cur_tag is not None: r.append(cur_tag)
 
         if len(t) != 0:
             ler = levenshtein(t, r) / len(t)
             return min(1.0, ler), t, r
         else: return None, t, r
-    
-    elif metrics == "ter_incl":  
+
+    elif metrics == "ter_incl":
         # tag error rate (for incorporating with ASR for _d in d)
-        target = decode_fn(target, id)
+        target = decode_fn(target)
         cur_tag = '</da>'
         t = []
         for i in reversed(range(len(target))):
@@ -183,7 +192,7 @@ def evaluate(target, result, decode_fn, metrics="wer", id=None):
                 cur_tag = target[i]
             t.append(cur_tag)
 
-        result = decode_fn(result, id)
+        result = decode_fn(result)
         #result = result[:len(target)]
         cur_tag = '</da>'
         r = []
@@ -236,6 +245,6 @@ def joint_evaluate(hparams, target1, result1, target2, result2, decode_fn):
                 i += 1
                 r.append(da)
             i += 1
-    
+
         return calculate_ler(t, r, decode_fn, 1)
 
