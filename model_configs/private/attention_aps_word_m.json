@@ -1,0 +1,24 @@
+{
+  "name": "attention_aps_word_m",
+  "model": "attention",
+  "dataset": "aps",
+  "input_unit": "word",
+  "vocab_file": "data/aps-sps/word.id",
+  "train_data": "data/aps-sps/train/word_sort_xlen.txt",
+  "eval_data": "data/aps-sps/test/word_targets.txt",
+
+  "batch_size": 32,
+  "learning_rate": 1e-4,
+
+  "eos_index": 1,
+  "sos_index": 2,
+  "encoder_type": "bilstm",
+  "encoder_num_units": 640,
+  "decoder_num_units": 320,
+  "attention_num_units": 320,
+  "attention_layer_size": 320,
+  "attention_energy_scale": true,
+
+  "beam_width": 16,
+  "length_penalty_weight": 0.5
+}

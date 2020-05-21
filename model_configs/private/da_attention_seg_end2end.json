@@ -1,0 +1,40 @@
+{
+  "model": "da_attention_seg",
+  "dataset": "swda_seg",
+  "input_unit": "word",
+  "vocab_file": "data/swbd/vocab/words_swda_full_old.txt",
+  "train_data": "data/swbd/swda_seg_full_vocab_old_split20_train.csv",
+  "dev_data": "data/swbd/swda_seg_full_vocab_old_split20_dev.csv",
+  "test_data": "data/swbd/swda_seg_full_vocab_old_split20_test.csv",
+
+  "learning_rate": 1e-3,
+  "batch_size": 40,
+  "eval_batch_size": 40,
+
+  "da_word_encoder_type": "bilstm",
+  "freeze_encoder": true,
+  "num_da_word_encoder_layers": 2,
+  "da_word_encoder_num_units": 256,
+  "da_attention_lambda": 0.5,
+  "da_input": "decoder_output",
+  "dropout": 0.0,
+  
+  "num_utt_history": 0,
+  
+  "learning_rate_start_decay_epoch": 6,
+  "learning_rate_decay_steps": 2,
+  "learning_rate_decay_rate": 0.5,
+
+  "encoder_type": "pbilstm",
+  "encoder_num_units": 512,
+  "decoder_num_units": 256,
+  "attention_num_units": 256,
+  "attention_layer_size": 256,
+  "embedding_size": 256,
+  "num_decoder_layers": 2,
+  "output_attention": true,
+  
+  "beam_width": 0,
+  "length_penalty_weight": 0.5,
+  "max_gradient_norm": 1.0
+}

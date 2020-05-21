@@ -1,0 +1,22 @@
+{
+  "name": "attention_aps_word_context",
+  "model": "attention_context",
+  "dataset": "erato_context",
+  "input_unit": "word",
+  "vocab_file": "data/aps-sps/word.id",
+  "train_data": "data/erica/train_notag_context.txt",
+  "eval_data": "data/erica/test_notag_context.txt",
+  "batch_size": 4,
+  "learning_rate": 1e-4,
+
+  "eos_index": 1,
+  "sos_index": 2,
+  "encoder_type": "bilstm",
+  "encoder_num_units": 640,
+  "decoder_num_units": 640,
+  "attention_num_units": 640,
+  "attention_layer_size": 640,
+
+  "beam_width": 0,
+  "length_penalty_weight": 0.5
+}

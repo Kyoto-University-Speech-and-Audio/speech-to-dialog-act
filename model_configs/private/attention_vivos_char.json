@@ -1,0 +1,7 @@
+{
+    "name": "attention_vivos_char",
+    "model": "attention",
+    "dataset": "vivos",
+    
+    "beam_width": 0
+}

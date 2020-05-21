@@ -1,0 +1,36 @@
+{
+  "model": "da_attention_seg",
+  "dataset": "swda_seg",
+  "input_unit": "word",
+  "vocab_file": "data/swbd/vocab/words_swda_full_old.txt",
+  "train_data": "data/swbd/swda_seg_da_seq_insert_bound_full_vocab_old_split20_train.csv",
+  "dev_data": "data/swbd/swda_seg_da_seq_insert_bound_full_vocab_old_split20_dev.csv",
+  "test_data": "data/swbd/swda_seg_da_seq_insert_bound_full_vocab_old_split20_test.csv",
+  "load_voice": false,
+  "metrics": "wer,ter_incl",
+  "da_input": "predicted_text",
+  "predicted_test_data": "data/swbd/model_outputs/swda_seg_pr_text_test.csv",
+
+  "learning_rate": 1e-3,
+  "batch_size": 70,
+  "eval_batch_size": 70,
+
+  "da_word_encoder_type": "bilstm",
+  "num_da_word_encoder_layers": 2,
+  "da_word_encoder_num_units": 256,
+  "da_attention_lambda": 0.0,
+  
+  "num_utt_history": 5,
+  "num_da_classes": 45,
+  "dropout": 0.0,
+  
+  "utt_encoder_num_units": 128,
+  "embedding_size": 256,
+  
+  "learning_rate_start_decay_epoch": 4,
+  "learning_rate_decay_steps": 1,
+  "learning_rate_decay_rate": 0.5,
+
+  "length_penalty_weight": 0.5,
+  "max_gradient_norm": 5.0
+}

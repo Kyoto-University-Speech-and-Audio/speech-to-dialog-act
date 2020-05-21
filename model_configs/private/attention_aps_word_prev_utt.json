@@ -1,0 +1,24 @@
+{
+  "name": "attention_aps_word_prev_utt",
+  "model": "attention_prev_utt",
+  "dataset": "erato_prev_utt",
+  "input_unit": "word",
+  "vocab_file": "data/aps-sps/word.id",
+  "train_data": "data/erica/train_group_by_dlg_16.txt",
+  "eval_data": "data/erica/test_group_by_dlg_16.txt",
+  "batch_size": 16,
+  "eval_batch_size": 3,
+  "learning_rate": 1e-4,
+  "num_classes": 34331,
+
+  "eos_index": 1,
+  "sos_index": 2,
+  "encoder_type": "bilstm",
+  "encoder_num_units": 640,
+  "decoder_num_units": 640,
+  "attention_num_units": 640,
+  "attention_layer_size": 640,
+
+  "beam_width": 0,
+  "length_penalty_weight": 0.5
+}
