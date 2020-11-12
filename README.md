@@ -107,27 +107,7 @@ Default behaviour is training from last saved model. These method can be used fo
 
 New model should be subclassed from `BaseModel`, which handles loading hyper-parameters.
 
-`AttentionModel` is highly customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional components or embeddings by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
-
-### Results
-
-Results with sample configurations:
-
-| Config file | Model | Dataset | Unit | LER |
-|-------------|-------|---------|------|-----|
-|`ctc_aps_sps`|ctc|CSJ-ASP & CSJ-SPS|char| - |
-|`attention_aps_sps_char`|attention|CSJ-ASP & CSJ-SPS | char | - |
-|`attention_aps_sps_word`|attention|CSJ-ASP & CSJ-SPS | word | - |
-|`ctc_vivos`|ctc|vivos (Vietnamese) | char | - |
-|`attention_vivos`|attention|vivos(Vietnamese)|char|-|
-
-### Checkpoint
-
-- [x] CTC loss
-- [x] Attention mechanism
-- [x] Location-based attention
-- [ ] Joint CTC-attention
-- [ ] Tacotron2
+`AttentionModel` is customizable. You can implement different types of encoder/decoder, attention mechanism or integrate additional components or embeddings by specifying your functions in initializing method or override existing methods. Some examples can be found in same folder.
 
 ### Live Demo
 
@@ -148,4 +128,4 @@ npm install & npm start
 
 ## Dialog act recognition
 
-Code for dialog act recognition is located at `src/models/private`
+Code for dialog act recognition is located at `src/models/da`. Configs are stored in `model_configs/da`

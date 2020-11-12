@@ -17,8 +17,6 @@ model_configs/private
 pretrained_models
 nohups
 
-src/models/private
-src/datasets/private
 src/preproc/private
 venv
 src/private
